@@ -3,6 +3,11 @@ class ButtonActor {
     this.addEventListener('pointerDown', 'pressed')
       // this.createMap()
       // this.spawnItem('Button_0')
+
+    if (this.name.includes('Button_0')) {
+      this.spawnItem('Button_1')
+      console.log('❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌')
+    }
   }
 
   pressed() {
@@ -11,7 +16,10 @@ class ButtonActor {
       case 'Button_0':
         this.createMap()
         break
-
+      case 'Button_1':
+        this.spawnItem('NPC_1')
+        this.spawnItem('NPC_2')
+        break
       default:
         console.log('❌ No Action was assigned to this button [' + this.name + ']')
         break
@@ -21,15 +29,12 @@ class ButtonActor {
   createMap() {
     // this.spawnItem('Floor')
 
-    this.spawnItem('Button_1')
+    // this.spawnItem('Button_1')
 
     this.spawnItem('EndCap')
     this.spawnItem('Shelf_1')
     this.spawnItem('Shelf_2')
     this.spawnItem('Shelf_3')
-
-    // this.spawnItem('NPC_1')
-    // this.spawnItem('NPC_2')
   }
 
   spawnItem(item) {
@@ -46,40 +51,35 @@ class ButtonActor {
   Item(item) {
     if (item.includes('Button_')) {
       var buttonIndex = 0
+
       var buttons = [{
         name: 'Button_1',
         t: [-12.1, 3.3, -8],
         r: [0, Math.PI / 2, 0],
-      }]
+      }, ]
 
       for (var i = 0; i < buttons.length; i++) { if (buttons[i].name == item) { buttonIndex = i } }
-
       return {
-        card: {
-          name: item,
-          translation: buttons[buttonIndex].t,
-          rotation: buttons[buttonIndex].r,
-          behaviorModules: ['Button'],
-          type: '2d',
-          width: 0.2,
-          height: 0.2,
-        }
+        name: item,
+        translation: buttons[buttonIndex].t,
+        rotation: buttons[buttonIndex].r,
+        behaviorModules: ['Button'],
+        type: '2d',
+        width: 0.2,
+        height: 0.2,
       }
-
     } else if (item == 'Floor') {
       return {
-        card: {
-          name: "world model",
-          layers: ["walk"],
-          type: "3d",
-          singleSided: true,
-          shadow: true,
-          translation: [0, -1.7, 0],
-          placeholder: true,
-          placeholderSize: [400, 0.1, 400],
-          placeholderColor: 0x6FA8DC,
-          placeholderOffset: [0, 0, 0],
-        }
+        name: "world model",
+        layers: ["walk"],
+        type: "3d",
+        singleSided: true,
+        shadow: true,
+        translation: [0, -1.7, 0],
+        placeholder: true,
+        placeholderSize: [400, 0.1, 400],
+        placeholderColor: 0x6FA8DC,
+        placeholderOffset: [0, 0, 0],
       }
     } else if (item == 'EndCap') {
       return {
@@ -115,22 +115,20 @@ class ButtonActor {
       }
     } else if (item.includes('NPC_')) {
       return {
-        card: {
-          name: item,
-          behaviorModules: ['Walk'],
-          translation: [0, 0, 0],
-          rotation: [0, -0.7071067811865475, 0, 0.7071067811865476],
-          layers: ['pointer'],
-          animationClipIndex: 0,
-          animationStartTime: 8415,
-          dataLocation: '3-vTDsRAr2yw-SxUbDaKBIAHcwhz2ipAepryzXcHN-qQQ19fW1gRBARNQkdOWAVeWAVIWURaXk5fBUJEBF4EbE99SVJHYlhqQHpIaXNPGGxTSl1SXH5gfHJyGQRCRAVIWURaXk5fBV5HX0JYQkYFSUpSSEJfQk5YBEhFShwaQnpKcmodfE9PTnNMbEAcbGFOHhhedEhSYVx0RVNjSmkfE0F7SHoET0pfSgQZWHNgHgYaRmNDZV15UUF_QRhoGBxuE1NnRExeY2dER2B9W3JdU2dYcU0f',
-          dataScale: [0.01, 0.01, 0.01],
-          fileName: '/Walking.fbx',
-          modelType: 'fbx',
-          shadow: true,
-          singleSided: true,
-          type: '3d'
-        }
+        name: item,
+        behaviorModules: ['Walk'],
+        translation: [0, 0, 0],
+        rotation: [0, -0.7071067811865475, 0, 0.7071067811865476],
+        layers: ['pointer'],
+        animationClipIndex: 0,
+        animationStartTime: 8415,
+        dataLocation: '3-vTDsRAr2yw-SxUbDaKBIAHcwhz2ipAepryzXcHN-qQQ19fW1gRBARNQkdOWAVeWAVIWURaXk5fBUJEBF4EbE99SVJHYlhqQHpIaXNPGGxTSl1SXH5gfHJyGQRCRAVIWURaXk5fBV5HX0JYQkYFSUpSSEJfQk5YBEhFShwaQnpKcmodfE9PTnNMbEAcbGFOHhhedEhSYVx0RVNjSmkfE0F7SHoET0pfSgQZWHNgHgYaRmNDZV15UUF_QRhoGBxuE1NnRExeY2dER2B9W3JdU2dYcU0f',
+        dataScale: [0.01, 0.01, 0.01],
+        fileName: '/Walking.fbx',
+        modelType: 'fbx',
+        shadow: true,
+        singleSided: true,
+        type: '3d'
       }
     } else return {}
   }

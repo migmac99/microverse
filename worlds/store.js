@@ -3,14 +3,13 @@ export function init(Constants) {
     'newwhite', 'madhatter', 'marchhare', 'queenofhearts', 'cheshirecat', 'alice'
   ];
 
-  Constants.UserBehaviorDirectory = 'behaviors/ultisim';
+  Constants.UserBehaviorDirectory = 'behaviors/ultisim'
   Constants.UserBehaviorModules = [
-    '../factory/lights.js', '../factory/openPortal.js',
-    '../default/openPortal.js',
+    '../default/lights.js', '../default/openPortal.js',
     'walker.js', 'dynamicPlacer.js', 'button.js'
-  ];
+  ]
 
-  Constants.UseRapier = true;
+  Constants.UseRapier = true
 
   Constants.DefaultCards = [{
       card: {
@@ -60,42 +59,6 @@ export function init(Constants) {
         type: '2d',
         width: 0.2,
         height: 0.2,
-      }
-    },
-    {
-      card: {
-        name: 'NPC_1',
-        behaviorModules: ['Walk'],
-        translation: [0, 0, 0],
-        rotation: [0, -0.7071067811865475, 0, 0.7071067811865476],
-        layers: ['pointer'],
-        animationClipIndex: 0,
-        animationStartTime: 8415,
-        dataLocation: '3-vTDsRAr2yw-SxUbDaKBIAHcwhz2ipAepryzXcHN-qQQ19fW1gRBARNQkdOWAVeWAVIWURaXk5fBUJEBF4EbE99SVJHYlhqQHpIaXNPGGxTSl1SXH5gfHJyGQRCRAVIWURaXk5fBV5HX0JYQkYFSUpSSEJfQk5YBEhFShwaQnpKcmodfE9PTnNMbEAcbGFOHhhedEhSYVx0RVNjSmkfE0F7SHoET0pfSgQZWHNgHgYaRmNDZV15UUF_QRhoGBxuE1NnRExeY2dER2B9W3JdU2dYcU0f',
-        dataScale: [0.01, 0.01, 0.01],
-        fileName: '/Walking.fbx',
-        modelType: 'fbx',
-        shadow: true,
-        singleSided: true,
-        type: '3d'
-      }
-    },
-    {
-      card: {
-        name: 'NPC_2',
-        behaviorModules: ['Walk'],
-        translation: [0, 0, 0],
-        rotation: [0, -0.7071067811865475, 0, 0.7071067811865476],
-        layers: ['pointer'],
-        animationClipIndex: 0,
-        animationStartTime: 8415,
-        dataLocation: '3-vTDsRAr2yw-SxUbDaKBIAHcwhz2ipAepryzXcHN-qQQ19fW1gRBARNQkdOWAVeWAVIWURaXk5fBUJEBF4EbE99SVJHYlhqQHpIaXNPGGxTSl1SXH5gfHJyGQRCRAVIWURaXk5fBV5HX0JYQkYFSUpSSEJfQk5YBEhFShwaQnpKcmodfE9PTnNMbEAcbGFOHhhedEhSYVx0RVNjSmkfE0F7SHoET0pfSgQZWHNgHgYaRmNDZV15UUF_QRhoGBxuE1NnRExeY2dER2B9W3JdU2dYcU0f',
-        dataScale: [0.01, 0.01, 0.01],
-        fileName: '/Walking.fbx',
-        modelType: 'fbx',
-        shadow: true,
-        singleSided: true,
-        type: '3d'
       }
     },
   ]
