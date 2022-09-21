@@ -56,6 +56,7 @@ class MenuActor {
                     behaviorModules: ["MenuItem"],
                     width: 1,
                     textScale: 0.0016,
+                    depth: 0,
                     height: 0.15,
                     noSave: true,
                     fullBright: true,
@@ -79,7 +80,7 @@ class MenuActor {
                     parent: this,
                     type: "2d",
                     behaviorModules: ["PropertySheetEdit"],
-                    dataLocation: null,//"./assets/SVG/edit.svg",
+                    dataLocation: "./assets/SVG/edit.svg",
                     width: 0.1,
                     height: 0.1,
                     scale: [0.04, 0.04, 0.04],
@@ -200,7 +201,7 @@ class MenuPawn {
     }
 
     initializeClipping() {
-        let THREE = Worldcore.THREE;
+        let THREE = Microverse.THREE;
         this.clippingPlanes = [
             new THREE.Plane(new THREE.Vector3(0, 1, 0),  0),
             new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
@@ -214,7 +215,7 @@ class MenuPawn {
         let planes = [];
         if (Number.isNaN(this.shape.matrixWorld.elements[0])) return [];
         for (let i = 0; i < 4; i++) {
-            planes[i] = new Worldcore.THREE.Plane();
+            planes[i] = new Microverse.THREE.Plane();
             planes[i].copy(this.clippingPlanes[i]);
             planes[i].constant = ary[i];
             planes[i].applyMatrix4(this.shape.matrixWorld);

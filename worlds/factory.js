@@ -9,7 +9,7 @@ export function init(Constants) {
 
     Constants.UserBehaviorDirectory = "behaviors/factory";
     Constants.UserBehaviorModules = [
-        "lights.js", "crane.js", "garage.js", "forklift.js", "circle.js", "cascade.js", "earth.js", "box.js", "spin.js", "flightTracker.js", "openPortal.js", "rearrange.js"
+        "lights.js", "crane.js", "garage.js", "forklift.js", "circle.js", "cascade.js", "earth.js", "box.js", "drone.js", "spin.js", "flightTracker.js", "openPortal.js", "rearrange.js"
     ];
 
     Constants.UseRapier = true;
@@ -20,8 +20,8 @@ export function init(Constants) {
                 name:"world model",
                 layers: ["walk"],
                 translation: [-0, -5.234552517024578, -0],
-                dataLocation: "3YZDDF6htWvgRaBg90chq-UXq_HZoZvYaqsil3KMJCH8MS0tKSpjdnY_MDU8KncsKnc6KzYoLDwtdzA2dix2Hj0POyA1ECoYMgg6GwE9ah4hOC8gLgwSDgAAa3YwNnc6KzYoLDwtdzQwOis2LzwrKjx2MjIUaT04ai8tIA8pAAgaHBZsMms2FTEBOC4YHGsVNWkbaG8BLGtvbzUJMnY9OC04dmBpEhdhDQo1CBE3HissGAwyECxrPG83Cy8AHhwQHzABKGEvAT4QDmE-KwA",
-                fileName: "/Factory4.glb",
+                dataLocation: "3aYc3x5t4SYnR8YZ1sJDJbZ3benvkwy8T_h3sZivNV_ACRUVERJbTk4HCA0EEk8UEk8CEw4QFAQVTwgOThROJgU3AxgNKBIgCjACIzkFUiYZABcYFjQqNjg4U04IDk8CEw4QFAQVTwwIAhMOFwQTEgRODiQxEgYtIjsRFhI7GyZTAhc0JSU0AA4pCiYiCQsDCTg7FiMnFzRYFkwCJE4FABUAThYsEQwPVgMrVCIuKkxYKS8DJVQnLRsvAABYJS1SWSVXOVkVBgNQCyU3LzQ",
+                fileName: "/Factory5.glb",
                 dataScale: [1.2, 1.2, 1.2],
                 modelType: "glb",
                 shadow: true,
@@ -278,6 +278,22 @@ export function init(Constants) {
         },
         {
             card: {
+                name: "drone assembly 1",
+                layers: ["pointer"],
+                translation: [53.48163857202977, 7.270324118143472, 30.903151540772612], // translation: [50.709776263247214, 7.270324118143472, 25.427818377798733],
+                rotation: [0, -Math.PI / 2, 0],
+                dataScale: [1.6, 1.6, 1.6],
+                dataLocation: "3GoJXGTqvuBdqaRBcIHp0qF_hCs14s_uw54cQONX7Nm0LzMzNzR9aGghLisiNGkyNGkkNSg2MiIzaS4oaDJoBB8PDSEDCCoyDiEuAh4oKAkeMBcRPgglLHchdWgkKCppIj8mKjcrImkzNSIxKDVpKj4qLiQ1KDEiNTQiaA90MhZ-JAt-PRNyPjMKIhI2KQYWLQMMDhATKA8QIQkXKQsQHxFwCSoQNw5oIyYzJmgDfgQhFXd_cDN-EwMOEiIuKxQKMHIPEj8yJi8Vdj8SFDErLiMJMCgODS4g",
+                behaviorModules: ["DroneAssembly"],
+                modelType: "glb",
+                shadow: true,
+                singleSided: true,
+                type: "3d",
+                createDrones: true,
+            }
+        },
+        {
+            card: {
                 name: "drone 1",
                 layers: ["pointer"],
                 translation: [28.30055025496248, 3.7, 18.673839690273365],
@@ -291,7 +307,6 @@ export function init(Constants) {
                 singleSided: true,
                 type: "3d",
             }
-
         },
         {
             card: {
@@ -403,7 +418,7 @@ export function init(Constants) {
             card: {
                 name: "rearrange",
                 type: "object",
-                translation: [7.490278792379745, 3.0868207143861564, 41.84439119032765],
+                translation: [7.245116172748017, 3.2067974079409365, 42.0089577998846],
                 behaviorModules: ["RearrangeButton"]
             }
         },
@@ -411,7 +426,7 @@ export function init(Constants) {
             card: {
                 name: "start point",
                 type: "object",
-                translation: [0, 4.4, 34],
+                translation: [0, 4.4, 38],
                 spawn: "default"
             }
         }

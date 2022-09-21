@@ -99,12 +99,17 @@ From our tutorial1, let us look at the behaviors in the GridFloor module.
 
 class GridFloorPawn {
     setup() {
-        const THREE = Worldcore.THREE;
+        const THREE = Microverse.THREE;
         const gridImage = './assets/images/grid.png';
         const texture = new THREE.TextureLoader().load(gridImage);
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
         texture.repeat.set( 100, 100 );
+
+        if (this.floor) {
+            this.shape.remove(this.floor);
+            this.floor.dispose();
+        }
 
         this.floor = new THREE.Mesh(
             new THREE.BoxGeometry( 100, 0.1, 100, 1, 1, 1 ),
@@ -134,7 +139,7 @@ Because behaviors are dynamically modified and attached and detached, their "lif
 
 In the `GridFloorPawn` case, we simply remove all children that `this.shape` might have first, and then create the new floor Mesh.
 
-The `Worldcore` variable contains all of the exported functions and objects from the Worldcore package. Refer to the [Worldcore documentation](https://croquet.io/docs/worldcore) for what is available. The most commonly used one is `Worldcore.THREE`, which in turn contains all exports from Three.js.
+The `Microverse` variable contains all of the exported functions and objects from the Microverse system, including many features re-exported from the Worldcore framework. Refer to the [Worldcore documentation](https://croquet.io/docs/worldcore) for what is available. The most commonly used one is `Microverse.THREE`, which contains all exports from Three.js.
 
 Let us look at another module that adds an ability to pointer drag to add a spin to a card.
 
@@ -148,13 +153,13 @@ class SpinActor {
 
     startSpinning(spin) {
         this.isSpinning = true;
-        this.qSpin = Worldcore.q_euler(0, spin, 0);
+        this.qSpin = Microverse.q_euler(0, spin, 0);
         this.doSpin();
     }
 
     doSpin() {
         if(this.isSpinning) {
-            this.setRotation(Worldcore.q_multiply(this._rotation, this.qSpin));
+            this.setRotation(Microverse.q_multiply(this._rotation, this.qSpin));
             this.future(50).doSpin();
         }
     }
@@ -196,9 +201,9 @@ class SpinPawn {
         }
         let next = this.theta(p3d.xyz);
         let newAngle = ((next - this.base) + Math.PI * 2) % (Math.PI * 2);
-        let qAngle = Worldcore.q_euler(0, newAngle, 0);
+        let qAngle = Microverse.q_euler(0, newAngle, 0);
 
-        this.say("setRotation", Worldcore.q_multiply(this.baseRotation, qAngle));
+        this.say("setRotation", Microverse.q_multiply(this.baseRotation, qAngle));
     }
 
     onPointerUp(p3d) {
@@ -233,10 +238,10 @@ export default {
     ]
 }
 
-/* globals Worldcore */
+/* globals Microverse */
 ```
 
-The overall structure of this is that the pointer event handlers (for `pointerDown`, `pointerUp` and `pointerMove`) are added to the pawn, and each of which invokes methods called `onPointerDown`, `onPointerMove`, and `onPointerUp`, respectively. The computed `qAngle` in `onPointerMove` is used to send the Worldcore's setRotation event.  Upon `pointerUp`, it determines if the card should keep spinning (if it had three or more move events before pointer up), and send an event called `startSpinning`.
+The overall structure of this is that the pointer event handlers (for `pointerDown`, `pointerUp` and `pointerMove`) are added to the pawn, and each of which invokes methods called `onPointerDown`, `onPointerMove`, and `onPointerUp`, respectively. The computed `qAngle` in `onPointerMove` is used to send the setRotation event.  Upon `pointerUp`, it determines if the card should keep spinning (if it had three or more move events before pointer up), and send an event called `startSpinning`.
 
 On the actor side, the `startSpinning` and `stopSpinning`, which is sent when the next `pointerDown` occurs, are handled.
 
@@ -304,8 +309,30 @@ The system internally records "persistent data" at 60 second intervals when ther
 
 Also note that the start file, either in `.js` or `.vrse`, is used only once to initialize the session. Any changes to the file after starting the world will not have any effects if you open the same Croquet Microvese session, which is specified by the `?q=` URL parameter.
 
+### Adding a new THREE.js library.
+Look at `src/ThreeRender.js`. It imports additional Three.js libraries at the top. At the bottom of the file, it creates an object called THREE (separate from the imported `Module`) with those additional libraries. And finally it exports THREE, along with other objects.
+
+It creates a new object called `THREE`. This is because as of version 143, it has legacy code for FontLoader and TextGeometry, which are frozen and cannot replace it. At the same time, a behavior needs to access those features through the global variable `Microverse.THREE`. So making a new object is a solution for this problem.
+
+When you would like to add a new Three.js library, add a new import line similar to others at the top of ThreeRender.js, and then include the exported object at the bottom in `THREE`.
+
 ### Developing the Innerworkings of the System
 
-As describe above, you can create a new world, populate the world with objects, and add interactive actions to those objects by just writing world files and behavior files. If you want to deep dive into the code base, you can find the implementation of the Croquet Microverse in the `src` directory and the top-level directory. The main files that describes are `card.js`, `code.js`, `Pointer.js`, and `avatar.js`. The startup sequence and root Croquet objects are described in 'index.js`, `root.js`, and `shell.js`. , The portal feature is implemented in `portal.js` and `frame.js`, with help from the top-level `shell.js`. Other files, such as `DynamicTexture.js`, `assetManager.js`, 'physics.js`, and `worldMenu.js` implement support features. the files in `src/text` implement the collaborative text editor.
+As describe above, you can create a new world, populate the world with objects, and add interactive actions to those objects by just writing world files and behavior files. If you want to deep dive into the code base, you can find the implementation of the Croquet Microverse in the `src` directory and the top-level directory. The main files that describes are `card.js`, `code.js`, `Pointer.js`, and `avatar.js`. The startup sequence and root Croquet objects are described in `index.js`, `root.js`, and `shell.js`. The portal feature is implemented in `portal.js` and `frame.js`, with help from the top-level `shell.js`. Other files, such as `DynamicTexture.js`, `assetManager.js`, `physics.js`, and `worldMenu.js` implement support features. the files in `src/text` implement the collaborative text editor.
+
+### npm scripts
+- `npm run build` build a production build in the directory called `dist`.
+`npm run build-dev` simulated the dev server's output and allows you to see what is generated as files.
+- `npm run file-server` runs a vanilla file server. This is useful to test the files in `dist` directory.
+- `npm run create-version` creates a one line file that contains the commit hash.
+
+### Publishing a new version of `@croquet/microverse-library`
+- Update `npm/package.json`, in particular the value for `version`.
+- Update `package.json`, in particular the value for `version`.
+- Run `npm run build-lib`. This creates a minimum set of files needed to run a test installation in the directory called `dist`. This directory can be published as an npm package.
+- Run `npm publish` in the `dist` directory.
+- Edit the line 75 of `index.js` of the `create-croquet-microverse` git repository so that it refers to the intended version of `@croquet/microverse-library`. If other dependencies need new versions, update them as well.
+- Edit the version of `package.json` of `create-croquet-microverse` repository so that a new version can be published to npm.
+- Run `npm publish` in the croquet-create-microverse.
 
 **Copyright (c) 2022 Croquet Corporation**

@@ -11,13 +11,12 @@ class EarthPawn {
         const earthshadow = `./assets/images/earthshadow.jpg`;
         const ball = './assets/images/ball.png';
 
-        const THREE = Worldcore.THREE;
+        const THREE = Microverse.THREE;
 
-        this.shape.children.forEach((c) => {
+        [...this.shape.children].forEach((c) => {
             c.material.dispose();
             this.shape.remove(c);
         });
-        this.shape.children = []; // ??
 
         const earthBaseTexture = new THREE.TextureLoader().load(earthbase);
         earthBaseTexture.wrapS = earthBaseTexture.wrapT = THREE.RepeatWrapping;
@@ -51,4 +50,4 @@ export default {
     ]
 }
 
-/* globals Worldcore */
+/* globals Microverse */

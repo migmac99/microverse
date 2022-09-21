@@ -2,34 +2,31 @@
 // https://croquet.io
 // info@croquet.io
 
+/* globals XRRigidTransform */
+
 import {
     Data, App, View, mix, GetPawn, AM_Player, PM_Player,
     v3_zero, v3_isZero, v3_add, v3_sub, v3_scale, v3_sqrMag, v3_normalize, v3_rotate, v3_multiply, v3_lerp, v3_transform, v3_magnitude, v3_equals,
     q_isZero, q_normalize, q_pitch, q_yaw, q_roll, q_identity, q_euler, q_axisAngle, q_slerp, q_multiply, q_equals,
     m4_multiply, m4_rotationQ, m4_rotationY, m4_translation, m4_invert, m4_getTranslation, m4_getRotation,
 } from "@croquet/worldcore-kernel";
-import { THREE, PM_ThreeCamera, PM_ThreeVisible } from "@croquet/worldcore-three";
+import { THREE, PM_ThreeCamera, PM_ThreeVisible } from "./ThreeRender.js";
 
 import { frameName, isPrimaryFrame, addShellListener, removeShellListener, sendToShell } from "./frame.js";
 import {PM_Pointer} from "./Pointer.js";
 import {CardActor, CardPawn} from "./card.js";
+import { TextFieldActor } from "./text/text.js";
 
-import {setupWorldMenuButton} from "./worldMenu.js";
+import {setupWorldMenuButton, filterDomEventsOn} from "./worldMenu.js";
+import { startSettingsMenu } from "./settingsMenu.js";
+// import Swal from "sweetalert2";
 
 const EYE_HEIGHT = 1.676;
-// const EYE_EPSILON = 0.01;
-const FALL_DISTANCE = EYE_HEIGHT / 12;
-const MAX_FALL = -15;
-const MAX_V = 0.015;
-const KEY_V = MAX_V / 2;
-// const MAX_SPIN = 0.0004;
-// const JOYSTICK_V = 0.000030;
 const COLLIDE_THROTTLE = 50;
 const THROTTLE = 15; // 20
-const PORTAL_DISTANCE = 0.3;
+const PORTAL_DISTANCE = 0.4; // tuned to the girth of the avatars
 const COLLISION_RADIUS = 0.8;
 const M4_ROTATIONY_180 = m4_rotationY(Math.PI);
-const Q_ROTATION_180 = q_euler(0, Math.PI, 0);
 let initialPortalLookExternal;
 
 
@@ -57,8 +54,11 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
         this.listen("avatarLookTo", this.onLookTo);
         this.listen("comeToMe", this.comeToMe);
         this.listen("followMeToWorld", this.followMeToWorld);
+        this.listen("continuePresenting", this.continuePresenting);
+        this.listen("continueFollowing", this.continueFollowing);
         this.listen("stopPresentation", this.stopPresentation);
         this.listen("inWorldSet", this.inWorldSet);
+        this.listen("nameSet", this.nameSet);
         this.listen("fileUploaded", "fileUploaded");
         this.listen("addSticky", this.addSticky);
         this.listen("textPasted", this.textPasted);
@@ -66,7 +66,18 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
         this.subscribe("playerManager", "presentationStarted", this.presentationStarted);
         this.subscribe("playerManager", "presentationStopped", this.presentationStopped);
         this.listen("leavePresentation", this.leavePresentation);
+        this.listen("setAvatarData", "setAvatarData");
+        this.listen("setWorldState", "setWorldState");
         this.future(0).tick();
+    }
+
+    setAndPublish(details) {
+        // aug 2022: a convenience function for updating a player's properties and
+        // publishing an event that anyone interested in the state of all players
+        // can subscribe to - for example the agoraChatManager, which wants to know
+        // which users are now in the chat.
+        this.set(details);
+        this.publish("playerManager", "detailsUpdated");
     }
 
     get pawn() { return AvatarPawnFactory; }
@@ -74,12 +85,66 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
 
     // used by the BVH based walking logic. customizable when the avatar is not a human size.
     get collisionRadius() { return this._cardData.collisionRadius || COLLISION_RADIUS; }
-    get fallDistance(){ return this._fallDistance || FALL_DISTANCE }; // how far we fall per update
     get inWorld() { return !!this._inWorld; }   // our user is either in this world or render
+
+    ensureNicknameCard() {
+        if (!this.inWorld) return;
+        if (this._cardData.noNicknameCard) {return;}
+
+        const TEXT_SCALE = 0.005; // 100px of text scales to 0.5 world units
+        const PADDING = 0.1; // horizontal and vertical
+        const MARGIN_FUDGE = 0.02; // compensate for text widget's small gap at the left
+        if (!this.nicknameCard) {
+            const marginLeft = (PADDING - MARGIN_FUDGE) / TEXT_SCALE;
+            const marginTop = PADDING * 1.1 / TEXT_SCALE;
+            const options = {
+                name: 'nickname',
+                className: "TextFieldActor",
+                behaviorModules: ["Billboard"],
+                translation: [0, 1, -0.1], // above and slightly in front
+                type: "text",
+                depth: 0.02,
+                margins: { left: marginLeft, top: marginTop },
+                backgroundColor: 0x300079,
+                frameColor: 0x400089,
+                fullBright: true,
+                opacity: 0.8,
+                runs: [],
+                width: 0.1,
+                height: 0.1,
+                textScale: TEXT_SCALE,
+                readOnly: true,
+                noDismissButton: true,
+                noSave: true,
+                parent: this
+            };
+            this.nicknameCard = this.createCard(options);
+        }
+
+        const nickname = this._name;
+        if (!nickname) {
+            this.nicknameCard.destroy();
+            this.nicknameCard = null;
+            return;
+        }
+        const measurement = TextFieldActor.defaultMeasurement(nickname);
+        const signWidth = Math.min(measurement.width * TEXT_SCALE + 2 * PADDING, 2);
+        const signHeight = Math.min(measurement.height * TEXT_SCALE + 2 * PADDING, 0.4);
+        this.nicknameCard.load([{text: nickname, style: {color: 'white'}}]);
+        this.nicknameCard.setExtent({width: signWidth / TEXT_SCALE, height: signHeight / TEXT_SCALE});
+    }
+
+    removeNicknameCard() {
+        if (this.nicknameCard) {
+            this.nicknameCard.destroy();
+        }
+        this.nicknameCard = null;
+    }
 
     // The user leaves the "guided tour".
     leavePresentation() {
         if (!this.follow) {return;}
+
         let manager = this.service("PlayerManager");
         let presentationMode = manager.presentationMode;
         if (!presentationMode) {return;}
@@ -90,12 +155,22 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
         }
     }
 
+    setWorldState(data) {
+        // let {inWorld, translation, rotation, anchor} = data;
+        this.set(data);
+    }
+
     stopPresentation() {
         this.service("PlayerManager").stopPresentation();
     }
 
     inWorldSet({o, v}) {
         if (!o !== !v) this.service("PlayerManager").playerInWorldChanged(this);
+        if (v) this.ensureNicknameCard();
+    }
+
+    nameSet({o, v}) {
+        if (o !== v) this.ensureNicknameCard();
     }
 
     startFalling() {
@@ -181,43 +256,62 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
         this.goToStep(0.1);
     }
 
-    comeToMe(teleport) {
-        this.service("PlayerManager").startPresentation(this.playerId, teleport);
+    comeToMe() {
+        this.service("PlayerManager").startPresentation(this.playerId);
     }
 
-    followMeToWorld(portalURL) {
+    followMeToWorld(presenterTransferData) {
+        // presenterTransferData is the same as the spec this avatar will use to enter
+        // the new world, minus its cardData and name.
+        // first confirm that we are indeed still the presenter.
         const manager = this.service("PlayerManager");
         if (manager.presentationMode === this.playerId) {
+            const followerTransferData = { ...presenterTransferData };
+            followerTransferData.following = followerTransferData.presenting;
+            delete followerTransferData.presenting;
             for (const playerId of manager.followers) {
                 if (playerId === this.playerId) continue;
                 const follower = manager.player(playerId);
-                follower.leaveToWorld(portalURL);
+                follower.followToWorld(followerTransferData);
             }
         }
     }
 
-    leaveToWorld(portalURL) {
-        this.say("leaveToWorld", portalURL);
+    followToWorld(followerTransferData) {
+        this.say("followToWorld", { followerTransferData });
     }
 
-    presentationStarted(playerId, teleport) {
-        if (this.playerId !== playerId && this.inWorld) {
-            let leader = this.service("PlayerManager").player(playerId);
-            if (teleport) {
-                this._translation = [...leader.translation];
-                this._rotation = [...leader.rotation];
-                this.say("forceOnPosition");
-            } else {
-                this.goTo(leader.translation, leader.rotation, false);
-            }
-            this.follow = playerId;
-            this.fall = false;
-            this._anchor = leader._anchor;
-        }
+    presentationStarted() {
+        // the PlayerManager has already decided which players are in the presentation
+        const { presenter, followers } = this.service("PlayerManager");
+        if (presenter.playerId === this.playerId || !followers.has(this.playerId)) return;
+
+        this._translation = [...presenter.translation];
+        this._rotation = [...presenter.rotation];
+        this.say("forceOnPosition");
+        this.follow = presenter.playerId;
+        this.fall = false;
+        this._anchor = presenter._anchor;
     }
 
     presentationStopped() {
         this.follow = null;
+    }
+
+    continuePresenting(presenterToken) {
+        // we came into this world through a portal while presenting.  if there is
+        // not already a presentation in progress, become the presenter and sign up
+        // every follower who enters (or has already entered) carrying the same token.
+        this.service("PlayerManager").continuePresenting(this, presenterToken);
+    }
+
+    continueFollowing(presenterToken) {
+        // we came into this world through a portal while following.  if the presenter
+        // has come through ahead and is already presenting, the PlayerManager will
+        // sign us up and invoke this.presentationStarted.  otherwise we just wait,
+        // holding onto the token (and knowing that the expected presenter may never
+        // turn up).
+        this.service("PlayerManager").continueFollowing(this, presenterToken);
     }
 
     goToStep(delta, t) {
@@ -267,7 +361,7 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
 
     // invoked in response to a file drop.
     fileUploaded(data) {
-        let {dataId, fileName, type, translation, rotation} = data;
+        let {dataId, fileName, type, translation, rotation, animationClipIndex, dataScale} = data;
 
         let cardType = type === "exr" ? "lighting" : (type === "svg" || type === "img" || type === "pdf" ? "2d" : "3d");
 
@@ -281,6 +375,14 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
             shadow: true,
             singleSided: true
         };
+
+        if (animationClipIndex !== undefined) {
+            options.animationClipIndex = animationClipIndex;
+        }
+
+        if (cardType === "3d" && dataScale) {
+            options.dataScale = dataScale;
+        }
 
         if (type === "img") {
             options = {
@@ -376,7 +478,7 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
     createPortal(translation, rotation, portalURL) {
         // sigh - all portals are "backwards"
         // or maybe *all* models are backwards and we need to fix dropPose and avatar models?
-        rotation = q_multiply(Q_ROTATION_180, rotation); // flip by 180 degrees
+        rotation = q_multiply(q_euler(0, Math.PI, 0), rotation); // flip by 180 degrees
 
         let card = {
             name: "portal",
@@ -384,7 +486,7 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
             translation,
             rotation,
             type: "2d",
-            layers: ["pointer", "portal"],
+            layers: ["pointer"],
             color: 0xFF66CC,
             frameColor: 0x888888,
             width: 3,
@@ -397,6 +499,33 @@ export class AvatarActor extends mix(CardActor).with(AM_Player) {
 
         this.createCard(card);
         this.publish(this.sessionId, "triggerPersist");
+    }
+
+    setAvatarData(options) {
+        console.log("setAvatarData", options);
+        this.setupAvatarBehavior(options);
+        this.updateOptions(options);
+        // this.ensureNicknameCard(); handled separately
+    }
+
+    setupAvatarBehavior(options) {
+        console.log("setupAvatarBehavior");
+        if (!options.avatarEventHandler) {
+            options.avatarEventHandler = "AvatarEventHandler";
+        }
+
+        let handlerModuleName = options.avatarEventHandler;
+        let behaviorManager = this.service("BehaviorModelManager");
+
+        if (behaviorManager && behaviorManager.modules.get(handlerModuleName)) {
+            if (!options.behaviorModules) {
+                options.behaviorModules = [handlerModuleName];
+            } else {
+                if (!options.behaviorModules.includes(handlerModuleName)) {
+                    options.behaviorModules = [...options.behaviorModules, handlerModuleName];
+                }
+            }
+        }
     }
 }
 
@@ -482,11 +611,24 @@ const PM_SmoothedDriver = superclass => class extends superclass {
     }
 }
 
+function setModelOpacity(model, visible, opacity) {
+    let transparent = opacity !== 1;
+    model.visible = visible;
+    model.traverse(n => {
+        n.renderOrder = 10000; // render this only after everything else
+        if (n.material && n.material.opacity !== opacity) {
+            n.material.opacity = opacity;
+            n.material.transparent = transparent;
+            n.material.side = THREE.DoubleSide;
+            n.material.needsUpdate = true;
+        }
+    });
+}
+
 class RemoteAvatarPawn extends mix(CardPawn).with(PM_Player, PM_ThreeVisible) {
     constructor(actor) {
         super(actor);
         this.lastUpdateTime = 0;
-        this.opacity = 1;
 
         this.spin = q_identity();
         this.velocity = [0, 0, 0];
@@ -494,35 +636,46 @@ class RemoteAvatarPawn extends mix(CardPawn).with(PM_Player, PM_ThreeVisible) {
         this.lookPitch = this.actor.lookPitch;
         this.lookYaw = this.actor.lookYaw;
         this.lookOffset = [0, 0, 0]; // Vector displacing the camera from the avatar origin.
-        this._rotation = q_euler(0, this.lookYaw, 0);
 
         this.tug = 0.06; // instead of default 0.2, to work with spaced updates
+        this.subscribe(this.id, "3dModelLoaded", "modelLoaded");
     }
 
-    setOpacity(opacity) {
-        if (this.shape) {
-            let transparent = opacity !== 1;
-            this.shape.visible = this.actor.inWorld && opacity !== 0;
-            this.shape.traverse(n => {
-                if (n.material) {
-                    n.material.opacity = opacity;
-                    n.material.transparent = transparent;
-                    n.material.side = THREE.DoubleSide;
-                    n.material.needsUpdate = true;
-                }
-            });
-        }
+    addChild(id) {
+        super.addChild(id);
+        delete this.lastOpacity;
+    }
+
+    removeChild(id) {
+        super.removeChild(id);
+        delete this.lastOpacity;
+    }
+
+    modelLoaded() {
+        console.log("remote avatar model loaded");
+        delete this.lastOpacity;
+        delete this.lastInWorld;
+        this.modelLoadTime = Date.now();
+        setModelOpacity(this.shape.children[0], true, 0);
+    }
+
+    detach() {
+        delete this.modelLoadTime;
+        super.detach();
     }
 }
 
+let dormantAvatarSpec = null;
+let useDormantAvatarSpec = true;
 export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver, PM_ThreeVisible, PM_ThreeCamera, PM_Pointer) {
     constructor(actor) {
         super(actor);
+
+        console.log("LocalAvatarPawn");
+
         this.lastUpdateTime = 0;
         this.lastCollideTime = 0;
-        this.lastPortalTime = 0;
         this.lastCollideTranslation = this.actor.translation;
-        this.opacity = 1;
 
         this.spin = q_identity();
         this.velocity = v3_zero();
@@ -535,31 +688,34 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
 
         this.isMobile = !!("ontouchstart" in window);
 
-
         this.isFalling = false;
 
-        let renderMgr = this.service("ThreeRenderManager");
+        const renderMgr = this.service("ThreeRenderManager");
         this.camera = renderMgr.camera;
         this.scene = renderMgr.scene;
+        renderMgr.avatar = this; // hack
+
         this.lastHeight = EYE_HEIGHT; // tracking the height above ground
-        this.yawDirection = -1; // which way the mouse moves the world depends on if we are using WASD or not
+        this.yawDirection = this.isMobile ? -1 : 1;
 
+        /*
         this.walkCamera = new THREE.Object3D();
-
         this.walkcaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, - 1, 0));
+        */
+
         this.portalcaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(), 0, PORTAL_DISTANCE);
 
-        this.future(100).fadeNearby();
-
-        // clip halfspace behind portalCamera
-        this.portalClip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
-
-        // 0.2 is to cover the gap of the portal thickness
-        // if there is no anchor, this is the default clip plane
-        // otherwise it will be updated below
+        this.fadeNearby();
+        if (this.fadeNearbyInterval) {
+            clearInterval(this.fadeNearbyInterval);
+            this.fadeNearbyInterval = null;
+        }
+        this.fadeNearbyInterval = setInterval(() => this.fadeNearby(), 100);
 
         document.getElementById("homeBttn").onclick = () => this.goHome();
+        filterDomEventsOn(document.getElementById("homeBttn"));
         document.getElementById("usersComeHereBttn").onclick = () => this.comeToMe();
+        filterDomEventsOn(document.getElementById("usersComeHereBttn"));
         document.getElementById("editModeBttn").setAttribute("mobile", this.isMobile);
         document.getElementById("editModeBttn").setAttribute("pressed", false);
 
@@ -569,96 +725,198 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
 
         setupWorldMenuButton(this, App, this.sessionId);
 
-        this.assetManager = this.service("AssetManager");
-        window.assetManager = this.assetManager.assetManager;
+        window.myAvatar = this;
+
+        this.eyeHeight = EYE_HEIGHT;
+        this.fallDistance = EYE_HEIGHT / 12;
+        this.maxFall = -15;
 
         // drop and paste
-        this.assetManager.assetManager.setupHandlersOn(document, (buffer, fileName, type) => {
+        this.service("AssetManager").assetManager.setupHandlersOn(document, (buffer, fileName, type) => {
             if (type === "pastedtext") {
                 this.pasteText(buffer);
             } else if (type === "vrse") {
                 this.loadvrse(buffer);
             } else {
-                this.uploadFile(buffer, fileName, type);
+                this.analyzeAndUploadFile(new Uint8Array(buffer), fileName, type);
             }
         });
 
-        // keep track of being in the primary frame or not
+        // keep track of being in the primary frame or not.  because of the delay involved
+        // in creating the avatar, the frame itself (in frame.js) is bound to have already
+        // processed a "frame-type" message and set its exported isPrimaryFrame value.
         this.isPrimary = isPrimaryFrame;
-        // this.say("_set", { inWorld: this.isPrimary });
-        this.shellListener = (command, { frameType, spec, cameraMatrix, dx, dy, updateTime, forwardTime }) => {
+
+        // clip halfspace behind portalCamera.
+        // [old comment] 0.2 is to cover the gap of the portal thickness
+        // if there is no anchor, this is the default clip plane
+        // otherwise it will be updated below
+        this.portalClip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+        this.setPortalClipping();
+
+        this.shellListener = (command, { frameType, spec, cameraMatrix, dx, dy, acknowledgeReceipt }) => {
+            let handlerModuleName = this.actor._cardData.avatarEventHandler;
             switch (command) {
                 case "frame-type":
                     const isPrimary = frameType === "primary";
-                    if (isPrimary !== this.isPrimary) {
-                        this.frameTypeChanged(isPrimary, spec);
-                        this.isPrimary = isPrimary;
-                        this.lastPortalTime = Date.now();
-                    }
-                    // tell shell that we received this command (TODO: should only send this once)
-                    sendToShell("started");
+                    // a frame generated by addFrame supplies no spec.  in all other cases
+                    // (portal-enter, world-enter) we need to start with the frame frozen.
+                    if (spec) this.setWorldSwitchFreeze(true);
+                    if (isPrimary !== this.isPrimary) this.frameTypeChanged(isPrimary, spec);
+                    // a secondary frame for which we already have camera information
+                    // will receive it as part of this message
+                    if (cameraMatrix) this.portalCameraUpdate(cameraMatrix);
+                    // acknowledge receipt so that shell knows this frame is ready
+                    sendToShell("avatar-ready", { frameType });
                     break;
-                case "start-sync-rendering":
-                    renderMgr.setRender(false);
-                    break;
-                case "stop-sync-rendering":
-                    renderMgr.setRender(true);
+                case "release-freeze":
+                    // sent to the primary as soon as all frames (this included) have
+                    // confirmed their switch to primary or secondary state.
+                    this.setWorldSwitchFreeze(false);
+                    this.refreshCameraTransform();
+                    this.updatePortalRender(true); // true => force portals to re-render
                     break;
                 case "sync-render-now":
-                    // console.log(Date.now() - updateTime);
-                    renderMgr.composer.render();
-                    break;
-                case "portal-update":
-                    if (cameraMatrix) {
-                        this.portalLookExternal = cameraMatrix;
-                        initialPortalLookExternal = cameraMatrix;
-                        if (!this.isPrimary) {
-                            this.refreshCameraTransform();
-                            renderMgr.composer.render();
-                            const renderedTime = Date.now();
-                            sendToShell("portal-world-rendered", { updateTime, forwardTime, renderedTime });
-                        }
+                    if (this.frozenForWorldSwitch) {
+                        console.log(frameName(), "ignoring sync-render while frozen");
+                        return;
                     }
+                    this.refreshCameraTransform();
+                    renderMgr.composer.render();
+                    if (acknowledgeReceipt) sendToShell("primary-rendered");
+                    break;
+                case "portal-camera-update":
+                    // sent to a through-portal world, to get it to render using
+                    // the camera position supplied by the corresponding portal
+                    this.setWorldSwitchFreeze(false);
+                    this.portalCameraUpdate(cameraMatrix);
                     break;
                 case "motion-start":
-                    this.call("AvatarEventHandler$AvatarPawn", "startMotion", dx, dy);
+                    if (this.has(`${handlerModuleName}$AvatarPawn`, "startMotion")) {
+                        this.call(`${handlerModuleName}$AvatarPawn`, "startMotion", dx, dy);
+                    } else {
+                        this.startMotion(dx, dy);
+                    }
                     break;
                 case "motion-end":
-                    this.call("AvatarEventHandler$AvatarPawn", "endMotion", dx, dy);
+                    if (this.has(`${handlerModuleName}$AvatarPawn`, "endMotion")) {
+                        this.call(`${handlerModuleName}$AvatarPawn`, "endMotion", dx, dy);
+                    } else {
+                        this.endMotion(dx, dy);
+                    }
                     break;
                 case "motion-update":
-                    this.call("AvatarEventHandler$AvatarPawn", "updateMotion", dx, dy);
+                    if (this.has(`${handlerModuleName}$AvatarPawn`, "updateMotion")) {
+                        this.call(`${handlerModuleName}$AvatarPawn`, "updateMotion", dx, dy);
+                    } else {
+                        this.updateMotion(dx, dy);
+                    }
                     break;
             }
         }
         addShellListener(this.shellListener);
-        //initialize actor
-        const actorSpec = { inWorld: this.isPrimary };
-        const anchor = this.anchorFromURL(window.location, !this.isPrimary);
-        if (anchor) {
-            actorSpec.anchor = anchor; // actor or {translation, rotation}
-            actorSpec.translation = anchor.translation;
-            actorSpec.rotation = anchor.rotation;
+
+        // initialize actor
+        // the fact that we're creating an AvatarPawn rather than a RemoteAvatarPawn
+        // means that this pawn is for the local user.  it will either be for the
+        // primary frame (in which case it sets the actor's inWorld to true) or
+        // non-primary (inWorld set to false - which forces the pawn's setOpacity
+        // method to set its own visibility to false, so it can sneak around
+        // as a disembodied through-portal camera).
+        // if there is a dormantAvatarSpec in the global context, and we're building
+        // the primary-frame avatar, we publish that spec to become the configuration for
+        // this actor - and hence for this pawn, and all RemoteAvatarPawns that other
+        // users have for it.
+        const inWorld = this.isPrimary;
+        let actorSpec;
+        let avatarSpec;
+        if (inWorld && dormantAvatarSpec) {
+            actorSpec = dormantAvatarSpec;
+            actorSpec.inWorld = true;
+            dormantAvatarSpec = null;
+            avatarSpec = actorSpec.cardData;
+        } else {
+            actorSpec = { inWorld };
+            const anchor = this.anchorFromURL(window.location, !this.isPrimary);
+            if (anchor) {
+                actorSpec.anchor = anchor; // actor or {translation, rotation}
+                actorSpec.translation = anchor.translation;
+                actorSpec.rotation = anchor.rotation;
+            }
+            let tempCardSpec = this.makeCardSpecFrom(window.settingsMenuConfiguration, this.actor);
+            avatarSpec = {...tempCardSpec};
         }
-        this.say("_set", actorSpec);
+
+        this.say("setWorldState", {
+            inWorld: actorSpec.inWorld,
+            translation: actorSpec.translation,
+            rotation: actorSpec.rotation,
+            anchor: actorSpec.anchor});
+        this.say("setAvatarData", avatarSpec); // NB: after setting actor's name
         this.say("resetStartPosition");
 
         this.subscribe("playerManager", "playerCountChanged", this.showNumbers);
         this.listen("setLookAngles", this.setLookAngles);
-        this.listen("leaveToWorld", this.leaveToWorld);
+        // respond to followToWorld immediately, to freeze our movements ASAP
+        this.listenImmediate("followToWorld", this.followToWorld);
         this.showNumbers();
 
         this.listen("forceOnPosition", this.onPosition);
 
         this.listen("goThere", this.stopFalling);
-        console.log("MyPlayerPawn created", this, "primary:", this.isPrimary);
+
+        this.subscribe(this.id, "3dModelLoaded", "modelLoaded");
+
+        console.log(frameName(), "MyPlayerPawn created", this, "primary:", this.isPrimary);
 
         this.wasdVelocity = [0, 0, 0];
         this.wasdMap = {w: false, a: false, d: false, s: false};
     }
 
+    detach() {
+        this.setDormantAvatarSpec(this.specForRevival());
+        if (this.fadeNearbyInterval) {
+            clearInterval(this.fadeNearbyInterval);
+            this.fadeNearbyInterval = null;
+        }
+        delete this.modelLoadTime;
+        super.detach();
+    }
+
+    startMotion(dx, dy) {
+        this.spin = q_identity();
+        this.velocity = v3_zero();
+        this.say("startFalling");
+        if (dx || dy) this.updateMotion(dx, dy);
+    }
+
+    endMotion(_dx, _dy) {
+        this.activeMMotion = false;
+        this.spin = q_identity();
+        this.velocity = v3_zero();
+    }
+
+    updateMotion(dx, dy) {
+        const JOYSTICK_V = 0.000030;
+        const MAX_V = 0.015;
+        const MAX_SPIN = 0.0004;
+
+        let v = dy * JOYSTICK_V;
+        v = Math.min(Math.max(v, -MAX_V), MAX_V);
+
+        const yaw = dx * (this.isMobile ? -2.5 * MAX_SPIN : -MAX_SPIN);
+        this.spin = q_euler(0, yaw ,0);
+        this.velocity = [0, 0, v];
+        this.maybeLeavePresentation();
+    }
+
     get presenting() {
         return this.actor.service("PlayerManager").presentationMode === this.viewId;
+    }
+
+    setWorldSwitchFreeze(bool) {
+        // if (!!this.frozenForWorldSwitch !== bool) console.warn(frameName(), `freeze: ${bool}`);
+        this.frozenForWorldSwitch = bool;
     }
 
     onPosition() {
@@ -672,6 +930,47 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         if (pitch !== undefined) {this.lookPitch = pitch;}
         if (yaw !== undefined) {this.lookYaw = yaw;}
         if (lookOffset !== undefined) {this.lookOffset = lookOffset;}
+    }
+
+    async analyzeAndUploadFile(buffer, fileName, type) {
+        let handle = await Data.store(this.sessionId, buffer, true);
+        let dataId = Data.toId(handle);
+        let assetManager = this.service("AssetManager").assetManager;
+        let obj;
+        let animationClipIndex;
+        let dataScale;
+        try {
+            if (type !== "pdf") {
+                // it is special cased as the assetManager itself does not load pdf
+                // but still is supported by a behavior.
+                obj = await assetManager.load(buffer, type, THREE, {});
+            }
+        } catch (e) {
+            console.warn("dropped file could not be processed", e);
+            return;
+        }
+
+        if (obj && obj.isObject3D) { // is3D
+            assetManager.setCache(dataId, buffer, "0");
+            if (obj._croquetAnimation) {
+                animationClipIndex = 0;
+            }
+
+            let size = new THREE.Vector3(0, 0, 0);
+            new THREE.Box3().setFromObject(obj).getSize(size);
+            let max = Math.max(size.x, size.y, size.z);
+            let s = 4 / max;
+            dataScale = [s, s, s];
+        }
+
+        let pose = this.dropPose(6);
+        this.say("fileUploaded", {
+            dataId, fileName, type: /^(jpe?g|png|gif)$/.test(type) ? "img" : type,
+            translation: pose.translation,
+            rotation: pose.rotation,
+            animationClipIndex,
+            dataScale
+        });
     }
 
     async uploadFile(buffer, fileName, type) {
@@ -702,6 +1001,25 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
     loadvrse(buffer) {
         let result = new TextDecoder("utf-8").decode(buffer);
         this.loadFromFile(result, false, true);
+
+        /*
+        Swal.fire({
+            title: 'Do you want to load VRSE to replace existing world or add as new cards?',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: 'Replace',
+            denyButtonText: `Add`,
+        }).then((swal) => {
+            let result = new TextDecoder("utf-8").decode(buffer);
+            if (swal.isConfirmed) {
+                let model = this.actor.wellKnownModel("ModelRoot");
+                this.publish(model.id, "removeAll");
+                this.loadFromFile(result, false, true);
+            } else if (swal.isDenied) {
+                this.loadFromFile(result, false, true);
+            }
+        });
+        */
     }
 
     dropPose(distance, optOffset) { // compute the position in front of the avatar
@@ -756,7 +1074,7 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
                 total = `${here}+${watching}`;
             }
             if (manager.presentationMode) {
-                let followers = manager.followers.size;
+                let followers = manager.followers.size; // includes the presenter
                 userCountReadout.textContent = `${followers}/${total}`;
                 tooltip = `${followers} ${followers === 1 ? "user" : "users"} in guided tour, ${tooltip}`;
             } else {
@@ -766,6 +1084,14 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         }
 
         comeHere.setAttribute("presenting", this.presenting);
+    }
+
+    modelLoaded() {
+        console.log("avatar model loaded");
+        delete this.lastOpacity;
+        delete this.lastInWorld;
+        this.modelLoadTime = Date.now();
+        setModelOpacity(this.shape.children[0], true, 0);
     }
 
     setEditMode(evt) {
@@ -791,9 +1117,12 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
     lookTo(pitch, yaw, lookOffset) {
         this.maybeLeavePresentation();
         this.setLookAngles({pitch, yaw, lookOffset});
-        this.say("avatarLookTo", [pitch, yaw, lookOffset]);
+        this.say("avatarLookTo", [pitch, yaw, lookOffset], 30);
         let q = q_euler(0, this.lookYaw, 0);
-        this.rotateTo(q);
+
+        this._rotation = q;
+        this.onLocalChanged();
+        this.isRotating = false;
     }
 
     destroy() {
@@ -809,12 +1138,17 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             // This is called from ThreeCamera's constructor but
             // all look* properties are not intialized yet.
             if (!this.isPrimary && this.portalLookExternal) return this.portalLook;
-            else return this.walkLook;
+            else return this.walkLook();
         } else return this.global;
     }
 
     // the camera when walking: based on avatar with 3rd person lookOffset
-    get walkLook() {
+    walkLook() {
+        let handlerModuleName = this.actor._cardData.avatarEventHandler;
+        if (this.has(`${handlerModuleName}$AvatarPawn`, "walkLook")) {
+            return this.call(`${handlerModuleName}$AvatarPawn`, "walkLook");
+        }
+
         const pitchRotation = q_axisAngle([1,0,0], this.lookPitch);
         const m0 = m4_translation(this.lookOffset);
         const m1 = m4_rotationQ(pitchRotation);
@@ -850,40 +1184,83 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         return mcam;
     }
 
-    specForPortal(portal) {
+    specForRevival() {
+        // on going dormant, generate the spec to be used if this tab is revived
+        const spec = {
+            translation: this._translation,
+            rotation: this._rotation,
+            lookPitch: this.lookPitch,
+            lookYaw: this.lookYaw,
+            lookOffset: this.lookOffset,
+            cardData: this.actor._cardData, // keep avatar appearance
+            name: this.actor._name, // and name
+            inChat: false, // see comment in MyPlayerManager.playerInWorldChanged
+            behaviorModules: this.actor._behaviorModules,
+        };
+        return spec;
+    }
+
+    setDormantAvatarSpec(data) {
+        if (useDormantAvatarSpec) {
+            dormantAvatarSpec = data;
+        }
+    }
+
+    useDormantAvatarSpec(bool) {
+        useDormantAvatarSpec = bool;
+    }
+
+    specForPortal(portal, jumpVector, crossingBackwards) {
         // we are about to enter this portal. meaning we disappear from this world and appear in the target world
         // visually nothing should change, so we need this avatar's position relative to the portal, as well as
         // its look pitch and offset. This will be passed to frameTypeChanged() in the target world.
+        const jumpMatrix = m4_translation(jumpVector);
+        const ourJumpedMatrix = m4_multiply(this.global, jumpMatrix);
         const t = m4_invert(portal.global);
-        const m = m4_multiply(this.global, t);
+        const m = m4_multiply(ourJumpedMatrix, t);
         // const log = (c, m) => console.log(c+"\n"+m.map((v, i) => +v.toFixed(2) + (i % 4 == 3 ? "\n" : ",")).join(''));
         // log("portal", portal.global);
         // log("avatar", this.global);
         // log("m", m);
+
+        // the entered world will use the translation and rotation that we send from here
+        // relative to its own anchor point
         const translation = m4_getTranslation(m);
         const rotation = m4_getRotation(m);
-        return {
+        const spec = {
             translation,
             rotation,
             lookPitch: this.lookPitch,
             lookYaw: this.lookYaw,
             lookOffset: this.lookOffset,
-            presenting: this.presenting,    // keep presenting
             cardData: this.actor._cardData, // keep avatar appearance
+            name: this.actor._name, // and name
             url: portal.resolvePortalURL(),
+            crossingBackwards
         };
+        // keep presenting
+        if (this.presenting) spec.presenting = Data.hash(this.viewId); // hash to not leak the viewId
+        return spec;
     }
 
     frameTypeChanged(isPrimary, spec) {
         // our avatar just came into or left this world, either through a portal
         // (in which case we have a view spec), or through a navigation event (browser's back/forward)
         // in all cases we set the actor's inWorld which will show/hide the avatar
+        this.isPrimary = isPrimary;
         const enteringWorld = isPrimary;
         const leavingWorld = !isPrimary;
         const actorSpec = {
             inWorld: enteringWorld,
         };
-        if (enteringWorld && spec) {
+
+        // portal-enter and world-enter provide cardData so avatar can keep its
+        // appearance.
+        if (spec?.cardData) actorSpec.cardData = spec.cardData;
+        if (spec?.name) actorSpec.name = spec.name;
+
+        // a portal transition under our own steam specifies translation, rotation etc
+        if (enteringWorld && spec?.translation) {
             let { translation, rotation } = spec;
             // transform spec relative to anchor
             const anchor = this.anchorFromURL(spec.url, true);
@@ -904,8 +1281,6 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             // move actor to the right place
             actorSpec.translation = translation;
             actorSpec.rotation = rotation;
-            // keep avatar appearance
-            actorSpec.cardData = spec.cardData;
             // move pawn to the right place
             this._translation = translation;
             this._rotation = rotation;
@@ -916,32 +1291,52 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             if (spec.lookOffset) this.lookOffset = spec.lookOffset;
         }
         if (leavingWorld) {
-            this.call("AvatarEventHandler$AvatarPawn", "endMotion");
+            let handlerModuleName = this.actor._cardData.avatarEventHandler;
+            this.call(`${handlerModuleName}$AvatarPawn`, "endMotion");
         }
         // now actually leave or enter the world (stops presenting in old world)
         console.log(`${frameName()} setting actor`, actorSpec);
+        // the actor handling of _set (in Actor.set) applies the specified properties
+        // in alphabetical order, each property triggering a say(`${propname}Set`).
         this.say("_set", actorSpec);
-        // start presenting in new space too
-        if (enteringWorld && spec?.presenting) {
-            let manager = this.actor.service("PlayerManager");
-            if (!manager.presentationMode) {
-                this.say("comeToMe", true);
+        if (enteringWorld) {
+            delete this.modelLoadTime;
+            this.say("setAvatarData", actorSpec.cardData || {}); // NB: after setting actor's name
+            // start presenting and following in new space too
+            if (spec?.presenting) {
+                let manager = this.actor.service("PlayerManager");
+                if (!manager.presentationMode) {
+                    this.say("continuePresenting", spec.presenting);
+                }
+            } else if (spec?.following) {
+                this.say("continueFollowing", spec.following);
             }
         }
-        this.updatePortalRender();
+        this.setPortalClipping();
     }
 
-    leaveToWorld(portalURL) {
+    followToWorld({ followerTransferData }) {
+        const { url, following } = followerTransferData;
         if (this.isPrimary) {
-            console.log(`${frameName()} sending enter-world to ${portalURL}`);
-            sendToShell("enter-world", { portalURL });
+            console.log(`${frameName()} sending world-enter to ${url} following: ${following}`);
+            this.setWorldSwitchFreeze(true);
+            followerTransferData.cardData = this.actor._cardData;
+            followerTransferData.name = this.actor._name;
+            sendToShell("world-enter", { portalURL: url, transferData: followerTransferData });
         } else {
-            console.log(`${frameName()} not sending enter-world to ${portalURL}`);
+            console.log(`${frameName()} not sending world-enter to ${url}`);
         }
     }
 
     update(time, delta) {
-        if (!this.actor.follow) {
+        if (this.frozenForWorldSwitch) return; // don't move
+
+        if (this.actor.follow || this.actor.remoteControlled) {
+            // when following, the actor is remote controlled (see AvatarActor.tick)
+            // so just call the PM_Smoothed version of update()
+            this.tug = 0.06;
+            super.update(time, delta);
+        } else {
             this.tug = 0.2;
             const manager = this.actor.service("PlayerManager");
             this.throttle = (manager.presentationMode === this.actor.playerId) ? 60 : 125;
@@ -949,32 +1344,63 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
                 // get the potential new pose from velocity and spin.
                 // the v and q variable is passed around to compute a new position.
                 // unless positionTo() is called the avatar state (should) stays the same.
+
                 let vq = this.updatePose(delta);
-                if (this.collidePortal(vq)) {return;}
-                if (!this.checkFloor(vq)) {
-                    // if the new position leads to a position where there is no walkable floor below
-                    // it tries to move the avatar the opposite side of the previous good position.
-                    vq.v = v3_lerp(this.lastCollideTranslation, vq.v, -1);
+
+                let handlerModuleName = this.actor._cardData.avatarEventHandler;
+                if (this.has(`${handlerModuleName}$AvatarPawn`, "walk")) {
+                    this.call(`${handlerModuleName}$AvatarPawn`, "walk", time, delta, vq);
                 } else {
-                    this.lastCollideTranslation = vq.v;
-                }
-                if (this.actor.fall && time - this.lastUpdateTime > THROTTLE) {
-                    if (time - this.lastCollideTime > COLLIDE_THROTTLE) {
-                        this.lastCollideTime = time;
-                        vq = this.collide(vq);
+                    if (this.collidePortal(vq)) {return;}
+                    if (!this.checkFloor(vq)) {
+                        // if the new position leads to a position where there is no walkable floor below
+                        // it tries to move the avatar the opposite side of the previous good position.
+                        vq.v = v3_lerp(this.lastCollideTranslation, vq.v, -1);
+                    } else {
+                        this.lastCollideTranslation = vq.v;
                     }
-                    this.lastUpdateTime = time;
-                    this.positionTo(vq.v, vq.q);
+                    if (this.actor.fall && time - this.lastUpdateTime > THROTTLE) {
+                        if (time - this.lastCollideTime > COLLIDE_THROTTLE) {
+                            this.lastCollideTime = time;
+                            vq = this.checkFall(vq);
+                            vq = this.walkTerrain(vq);
+                        }
+                        this.lastUpdateTime = time;
+                        this.positionTo(vq.v, vq.q);
+                    }
                 }
                 this.refreshCameraTransform();
+
+                // this part is copied from CardPawn.update()
+                // as we may not be calling super.update() all the time to avoid the smoothing logic from kicking in.
+                // We should think about cleaning up here.
+                if (this.updateRequests) {
+                    this.updateRequests.forEach((u) => {
+                        // [behaviorName, methodName]
+                        this.call(...u, time, delta);
+                    });
+                }
             }
-        } else {
-            // if it is following the view is remote controlled
-            // so just call the PM_Smoothed version of update()
-            this.tug = 0.06;
-            super.update(time, delta);
         }
+        this.updateXRReference();
         this.updatePortalRender();
+    }
+
+    updateXRReference() {
+        let manager = this.service("ThreeRenderManager");
+        if (!manager.origReferenceSpace) {return;}
+
+        let xr = manager.renderer.xr;
+        let inv = m4_invert(this.global);
+        let vv = m4_getTranslation(inv);
+        let rr = m4_getRotation(inv);
+
+        let offsetTransform = new XRRigidTransform(
+            {x: vv[0], y: vv[1], z: vv[2]},
+            {x: rr[0], y: rr[1], z: rr[2], w: rr[3]});
+
+        let newSpace = manager.origReferenceSpace.getOffsetReferenceSpace(offsetTransform);
+        xr.setReferenceSpace(newSpace);
     }
 
     // compute motion from spin and velocity
@@ -999,37 +1425,79 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         return {v, q};
     }
 
-    // update the camera transform and clipping planes if we are rendering a portal
-    updatePortalRender() {
+    // update the camera transform and clipping planes depending on whether this avatar
+    // is non-primary - i.e., rendering for a portal.
+    setPortalClipping() {
         let { clippingPlanes } = this.service("ThreeRenderManager").renderer;
         if (this.isPrimary) {
             // we are the top world, so we turn off portal clipping
             const idx = clippingPlanes.indexOf(this.portalClip);
             if (idx >= 0) clippingPlanes.splice(idx, 1);
         } else {
-            // we are rendering a portal
-            // if we have an anchor, the anchor may have been moved
-            if (this.actor._anchor) {
-                this.refreshCameraTransform(); // updates portalClip too
-            }
-            // turn on portal clipping
+            // we are rendering for a portal in another world.  turn on portal clipping.
             if (!clippingPlanes.includes(this.portalClip)) {
                 clippingPlanes.push(this.portalClip);
             }
-            // check which half-space of the portal the camera is in,
-            // and flip the portal's clip plane to the other side if needed
-
-            // const cameraInFrontOfPortalPlane = this.lookGlobal[14] > 0;
-            // const clippingBehindPortalPlane = this.portalClip.normal.z < 0;
-            // if (clippingBehindPortalPlane !== cameraInFrontOfPortalPlane) {
-            //     this.portalClip.normal.negate();
-            // }
-
-            // this ensures we can look "through" the portal from behind
-            // and see the other half space
-            // TODO: we assume the portal is at the origin looking down the z axis
-            // when this is no longer true, we need to update this code
         }
+    }
+
+    // this is sent on every update(), as long as we're not frozen.
+    // if this is the primary frame and it has portals,
+    // they are given the chance to figure out if their camera matrices have
+    // changed (due to motion of either the avatar or the portal).  if changed
+    // portals are found, we tell the shell so it can coordinate rendering.
+    updatePortalRender(force = false) {
+        if (this.isPrimary) {
+            const portalSpecs = [];
+            let secondaryRenders = false;
+            this.publish("avatar", "gatherPortalSpecs", {
+                callback: spec => {
+                    portalSpecs.push(spec);
+                    secondaryRenders |= !!spec.cameraMatrix;
+                },
+                force
+            });
+            const renderMgr = this.service("ThreeRenderManager");
+            if (portalSpecs.length) sendToShell("portal-update", { portalSpecs });
+            else renderMgr.setRender(true); // no portals, so use automatic rendering.
+
+            // if we are being woken after a world switch (in which case force=true),
+            // and it turns out that there are no portals whose rendering the shell
+            // will await, render immediately and send "primary-rendered" to the shell
+            // so it will reorder any frames.
+            if (force && !secondaryRenders) {
+                console.log(frameName(), "no portals in sight; rendering immediately");
+                renderMgr.composer.render();
+                sendToShell("primary-rendered");
+            }
+        } else {
+            // we are rendering for a portal in another world.
+            // if we have an anchor, the anchor may have been moved
+            if (this.actor._anchor) this.refreshCameraTransform();
+        }
+    }
+
+    portalCameraUpdate(cameraMatrix) {
+        this.lastCameraMatrix = cameraMatrix;
+        const renderMgr = this.service("ThreeRenderManager");
+        renderMgr.setRender(false); // we assume each update is likely part of a series; auto rendering will be switched back on if there is a pause in the updates
+        if (cameraMatrix) {
+            if (this.endMovementTimeout) clearTimeout(this.endMovementTimeout);
+            this.endMovementTimeout = setTimeout(() => {
+                const renderNow = !!this.lastCameraMatrix && !this.frozenForWorldSwitch;
+                // console.log(`movement ended; setRender(${renderNow})`);
+                renderMgr.setRender(renderNow);
+            }, 50);
+
+            this.portalLookExternal = cameraMatrix;
+            initialPortalLookExternal = cameraMatrix;
+            if (!this.isPrimary && !this.frozenForWorldSwitch) {
+                this.refreshCameraTransform();
+                renderMgr.composer.render();
+                sendToShell("portal-world-rendered");
+            }
+        }
+
     }
 
     checkFloor(vq) {
@@ -1052,6 +1520,18 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         }
 
         return someFloor;
+    }
+
+    checkFall(vq) {
+        if (!this.isFalling) {return vq;}
+        let v = vq.v;
+        v = [v[0], v[1] - this.fallDistance, v[2]];
+        this.isFalling = false;
+        if (v[1] < this.maxFall) {
+            this.goHome();
+            return {v: v3_zero(), q: q_identity()};
+        }
+        return {v: v, q: vq.q};
     }
 
     collideBVH(collideList, vq) {
@@ -1183,11 +1663,6 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             onGround = onGround || positionChanged && velocity[1] < -0.1 && Math.abs(velocity[0]) < 0.001 && Math.abs(velocity[2]) < 0.001;
         }
 
-        if (!this.checkFloor({v: newPosition, q: vq.q})) {
-            let newv = v3_lerp(this.lastCollideTranslation, vq.v, -1);
-            return {v: newv, q: vq.q};
-        }
-
         if (onGround) {
             this.isFalling = false;
             return {v: this.translation, q: vq.q};
@@ -1212,69 +1687,90 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
     }
 
     collidePortal(vq) {
-        let portalLayer = this.service("ThreeRenderManager").threeLayer("portal");
+        if (this.frozenForWorldSwitch) return false;
+
+        const renderMgr = this.service("ThreeRenderManager");
+        const portalLayer = renderMgr.threeLayer("portal");
         if (!portalLayer) return false;
 
-        // prevent re-entering the portal
-        if (this.lastPortalTime > Date.now() - 500) return false;
-
         let dir = v3_sub(vq.v, this.translation);
-        let len = Math.max(v3_magnitude(dir), PORTAL_DISTANCE);
-        // not moving then return false
-        if (v3_isZero(dir)) return false;
+        const traveled = v3_magnitude(dir);
+        // if we're not moving, we're not crossing
+        if (traveled === 0) return false;
 
         dir = v3_normalize(dir);
-        this.portalcaster.far = len;
+        this.portalcaster.far = 5; // first just find a portal; later worry about if we're close enough to cross it
         this.portalcaster.ray.direction.set(...dir);
         this.portalcaster.ray.origin.set(...this.translation);
-        const intersections = this.portalcaster.intersectObjects(portalLayer, true);
-        if (intersections.length > 0) {
-            let portal = this.pawnFrom3D(intersections[0].object);
-            if (portal) {
-                // don't allow re-entering the portal
-                this.lastPortalTime = Date.now();
-                // remember which portal we left the world from
-                this.anchor = portal.actor;
-                // NOTE THIS IS NOT THE ONLY CODE PATH FOR ENTERING WORLDS
-                // we also jump between worlds using the browser's "forward/back" buttons
-                console.log(frameName(), "player", this.viewId, "enter portal", portal.portalId);
-                // spec for this avatar in new world
-                const avatarSpec = this.specForPortal(portal);
-                // shell will swap iframes and trigger avatarPawn.frameTypeChanged() for this user in both worlds
-                // but it also may delete this frame if is unowned
-                sendToShell("portal-enter", { portalId: portal.portalId, avatarSpec });
-                // if we were presenting, tell followers to come with us
-                if (this.presenting) {
-                    this.say("followMeToWorld", avatarSpec.url);
-                    // calls leaveToWorld() in followers
-                    // which will result in frameTypeChanged() on follower's clients
-                }
-                return true;
+        const firstIntersection = this.portalcaster.intersectObjects(portalLayer, true)[0];
+        if (firstIntersection) {
+            let portal = this.pawnFrom3D(firstIntersection.object);
+            if (!portal) return false;
+
+            // the normal of the portal's globalPlane points into the portal world
+            const portalPlane = portal.globalPlane;
+            const movingTowards = portalPlane.normal.dot(new THREE.Vector3(...dir)) > 0;
+            if (!movingTowards) return false;
+
+            // simplest check is whether the distance to the intersect with the portal
+            // plane is less than the distance we moved in the last time unit.  if
+            // it is, assume we're going to cross within the next step.
+            let crosses = firstIntersection.distance <= traveled;
+
+            if (!crosses) {
+                // otherwise, find our signed perpendicular distance to the portal's plane.
+                // if within the designated portal-crossing distance, on the portal's
+                // front side, we're going to cross.
+                const perpendicular = portalPlane.distanceToPoint(new THREE.Vector3(...vq.v));
+                crosses = perpendicular >= -PORTAL_DISTANCE;
             }
+
+            if (!crosses) return false;
+
+            const { camera } = renderMgr;
+            const cameraDir = camera.getWorldDirection(new THREE.Vector3());
+            const crossingBackwards = portalPlane.normal.dot(cameraDir) < 0;
+
+            // remember which portal we left the world from
+            this.anchor = portal.actor;
+
+            // NOTE: THIS IS NOT THE ONLY CODE PATH FOR ENTERING WORLDS
+            // we also jump between worlds using the browser's "forward/back" buttons
+            console.log(frameName(), "player", this.viewId, "enter portal", portal.portalId);
+
+            // make sure automatic rendering is off, and update-generated rendering
+            renderMgr.setRender(false);
+            this.setWorldSwitchFreeze(true);
+
+            // spec for this avatar in new world
+            let jumpVector = v3_scale(dir, firstIntersection.distance);
+            jumpVector = v3_add(jumpVector, v3_scale(portalPlane.normal.toArray(), PORTAL_DISTANCE));
+            const transferData = this.specForPortal(portal, jumpVector, crossingBackwards);
+
+            // shell will swap iframes and trigger avatarPawn.frameTypeChanged() for this user in both worlds
+            // but it also may delete this frame if it is unowned
+            sendToShell("portal-enter", { portalId: portal.portalId, transferData });
+            // if we were presenting, tell followers to come with us
+            if (this.presenting) {
+                const { cardData: _cd, name: _n, ...presenterTransferData } = transferData;
+                this.say("followMeToWorld", presenterTransferData);
+                // calls followToWorld() in followers
+                // which will result in frameTypeChanged() on follower's clients
+            }
+            return true;
         }
         return false;
     }
 
-    collide(vq) {
+    walkTerrain(vq) {
         let walkLayer = this.service("ThreeRenderManager").threeLayer('walk');
         if (!walkLayer) return vq;
 
         let v = vq.v;
 
-        if (this.isFalling) {
-            v = [v[0], v[1] - this.actor.fallDistance, v[2]];
-            this.isFalling = false;
-            if (v[1] < MAX_FALL) {
-                this.goHome();
-                return {v: v3_zero(), q: q_identity()};
-            }
-        }
-
         let collideList = walkLayer.filter(obj => obj.collider);
         if (collideList.length > 0) {
-            let a = this.collideBVH(collideList, {v, q: vq.q});
-            window.abc = a;
-            return a;
+            return this.collideBVH(collideList, {v, q: vq.q});
         }
         return vq;
     }
@@ -1285,6 +1781,33 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         // you can override the avatars behavior.
         let w = this.wasdVelocity;
         let nw;
+
+        const MAX_V = 0.015;
+        const KEY_V = MAX_V / 2;
+
+        if (e.ctrlKey || e.altKey) {
+            switch(e.key) {
+                case 'a':
+                    console.log("My avatar pawn", this);
+                    console.log("translation: ",this.actor.translation);
+                    console.log("rotation (euler):",
+                        q_pitch(this.actor.rotation),
+                        q_yaw(this.actor.rotation),
+                        q_roll(this.actor.rotation));
+                    console.log("scale:", this.actor.scale);
+                    break;
+                case 'r':
+                    let renderer = this.service("ThreeRenderManager").renderer;
+                    console.log("Renderer", renderer);
+                    console.log("Scene polycount:", renderer.info.render.triangles)
+                    console.log("Active Drawcalls:", renderer.info.render.calls)
+                    console.log("Textures in Memory", renderer.info.memory.textures)
+                    console.log("Geometries in Memory", renderer.info.memory.geometries)
+                    break;
+            }
+            return;
+        }
+
         switch(e.key) {
             case 'Tab':
                 this.jumpToNote(e); break;
@@ -1292,7 +1815,6 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             case 'a': case 'A': // left strafe
             case 'd': case 'D': // right strafe
             case 's': case 'S': // backward
-                this.yawDirection = -2;
                 this.wasdMap[e.key.toLowerCase()] = true;
                 switch (e.key) {
                     case 'w': case 'W': // forward
@@ -1315,37 +1837,6 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
                 this.velocity = this.wasdVelocity;
                 this.maybeLeavePresentation();
                 break;
-            default:
-                if (e.ctrlKey) {
-                    switch(e.key) {
-                        case 'a':
-                            console.log("MyAvatar");
-                            console.log("translation: ",this.actor.translation);
-                            console.log("rotation:", q_pitch(this.actor.rotation),
-                                q_yaw(this.actor.rotation), q_roll(this.actor.rotation));
-                            console.log("scale:", this.actor.scale);
-                            break;
-                        case 'p':
-                            if (this.profiling) {
-                                console.log("end profiling");
-                                console.profileEnd("profile");
-                                this.profiling = false;
-                            } else {
-                                this.profiling = true;
-                                console.log("start profiling");
-                                console.profile("profile");
-                            }
-                            break;
-                        case 'r':
-                            let renderer = this.service("ThreeRenderManager").renderer;
-                            console.log("Scene polycount:", renderer.info.render.triangles)
-                            console.log("Active Drawcalls:", renderer.info.render.calls)
-                            console.log("Textures in Memory", renderer.info.memory.textures)
-                            console.log("Geometries in Memory", renderer.info.memory.geometries)
-                            break;
-                    }
-                }
-            /* console.log(e) */
         }
     }
 
@@ -1358,7 +1849,6 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             case 'a': case 'A': // left strafe
             case 'd': case 'D': // right strafe
             case 's': case 'S': // backward
-                this.yawDirection = -1;
                 this.wasdMap[e.key.toLowerCase()] = false;
                 let h;
                 if (this.wasdMap.a && !this.wasdMap.d) {
@@ -1404,7 +1894,7 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
     }
 
     pointerDown(e) {
-        if (e.ctrlKey) { // should be the first responder case
+        if (e.ctrlKey || e.altKey) { // should be the first responder case
             const render = this.service("ThreeRenderManager");
             const rc = this.pointerRaycast(e.xy, render.threeLayerUnion('pointer'));
             this.targetDistance = rc.distance;
@@ -1433,10 +1923,14 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
                 console.log("pointerDown in editMode");
             }
         } else {
-            if (!this.focusPawn) {
+            if (!this.focusPawn && e.xy) {
                 // because this case is called as the last responder, facusPawn should be always empty
                 this.dragWorld = this.xy2yp(e.xy);
                 this.lookYaw = q_yaw(this._rotation);
+            }
+            let handlerModuleName = this.actor._cardData.avatarEventHandler;
+            if (this.has(`${handlerModuleName}$AvatarPawn`, "handlingEvent")) {
+                this.call(`${handlerModuleName}$AvatarPawn`, "handlingEvent", "pointerDown", this, e);
             }
         }
     }
@@ -1453,7 +1947,7 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
             }
         }else {
             // we should add and remove responders dynamically so that we don't have to check things this way
-            if (!this.focusPawn && this.isPointerDown) {
+            if (!this.focusPawn && this.isPointerDown && e.xy) {
                 let yp = this.xy2yp(e.xy);
                 let yaw = (this.lookYaw + (this.dragWorld[0] - yp[0]) * this.yawDirection);
                 let pitch = this.lookPitch + this.dragWorld[1] - yp[1];
@@ -1509,15 +2003,51 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
     fadeNearby() {
         let manager = this.actor.service("PlayerManager");
         let presentationMode = manager.presentationMode;
+        let setOpacity = (pawn, opacity) => {
+            const inWorld = pawn.actor.inWorld;
+            // don't try to set (and record) opacity until the avatar has its model
+            if (!pawn.modelLoadTime || (pawn.lastOpacity === opacity && pawn.lastInWorld === inWorld)) {return;}
+
+            pawn.lastOpacity = opacity;
+            pawn.lastInWorld = inWorld;
+
+            let origOpacity = opacity;
+
+            let handlerModuleName = pawn.actor._cardData.avatarEventHandler;
+            if (pawn.has(`${handlerModuleName}$AvatarPawn`, "mapOpacity")) {
+                opacity = pawn.call(`${handlerModuleName}$AvatarPawn`, "mapOpacity", this, opacity);
+            }
+
+            let model = pawn.shape.children[0];
+            if (!model) {return;}
+
+            let visible = inWorld && opacity !== 0;
+            setModelOpacity(model, visible, opacity);
+
+            // don't mess with opacity levels of children, but make them
+            // visible or invisible appropriately
+            if (pawn._children) {
+                for (let c of pawn._children) {
+                    if (c.shape) c.shape.visible = visible;
+                }
+            }
+
+            let ghostfoot = this.shape.getObjectByName("ghostfoot");
+            if (ghostfoot) {
+                ghostfoot.visible = pawn.actor.inWorld && origOpacity !== 0;
+            }
+        };
+
         for (let [_viewId, a] of manager.players) {
             // a for actor, p for pawn
             let p = GetPawn(a.id);
+            if (!p) {continue;}
             if (!this.actor.inWorld) {
-                p.setOpacity(1); // we are not even here so don't affect their opacity
+                setOpacity(p, 1); // we are not even here so don't affect their opacity
             } else if (a.follow) {
-                p.setOpacity(0); // never render followers
-            } else if ((p === this || (a._playerId === presentationMode && this.actor.follow)) && v3_isZero(a.lookOffset)) {
-                p.setOpacity(0); // never render me or my leader in 1st person
+                setOpacity(p, 0); // never render followers
+            } else if (((p === this && v3_isZero(a.lookOffset)) || (a._playerId === presentationMode && this.actor.follow)) && v3_isZero(a.lookOffset)) {
+                setOpacity(p, 0); // never render me or my leader in 1st person
             } else { // fade based on their (or our own) distance between avatar and camera
                 let m = this.lookGlobal; // camera location
                 let cv = new THREE.Vector3(m[12], m[13], m[14]);
@@ -1525,25 +2055,93 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
                 let av = new THREE.Vector3(m[12], m[13], m[14]);
                 // fade between 0.5 and 3.3 meters (but we used squared distance)
                 let d = Math.min(Math.max((cv.distanceToSquared(av) - 0.7) / 10, 0), 1);
-                p.setOpacity(d);
+                setOpacity(p, d);
             }
         }
-        this.future(100).fadeNearby();
     }
 
-    setOpacity(opacity) {
-        if (this.shape) {
-            let transparent = opacity !== 1;
-            this.shape.visible = this.actor.inWorld && opacity !== 0;
-            this.shape.traverse(n => {
-                if (n.material && n.material.opacity !== opacity) {
-                    n.material.opacity = opacity;
-                    n.material.transparent = transparent;
-                    n.material.side = THREE.DoubleSide;
-                    n.material.needsUpdate = true;
-                }
-            });
+    addChild(id) {
+        super.addChild(id);
+        delete this.lastOpacity;
+    }
+
+    removeChild(id) {
+        super.removeChild(id);
+        delete this.lastOpacity;
+    }
+
+    makeCardSpecFrom(configuration, actor) {
+        let oldCardData = {...actor._cardData};
+        let handlerModuleName = this.actor._cardData.avatarEventHandler;
+        let behaviorModules = actor._behaviorModules || [];
+        let avatarType = oldCardData.avatarType;
+
+        [
+            "dataLocation", "dataTranslation", "dataScale", "dataRotation", "handedness",
+            "modelType", "type", "name", "shadow", "avatarType"].forEach((n) => {delete oldCardData[n];});
+
+        if (!configuration.type && !avatarType) {
+            let options = {
+                name: this.actor._name,
+                dataScale: [0.3, 0.3, 0.3],
+                dataRotation: q_euler(0, Math.PI, 0),
+                dataTranslation: [0, -0.4, 0],
+                dataLocation: `./assets/avatars/${this.actor._name}.zip`,
+                modelType: "glb",
+                type: "3d",
+                behaviorModules: behaviorModules,
+                ...oldCardData,
+            };
+            if (options.type === "initial") {options.type = "3d";}
+            return options;
         }
+
+        let options = {
+            type: "3d",
+            modelType: "glb",
+            dataLocation: configuration.avatarURL,
+            name: configuration.nickname,
+            dataRotation: [0, Math.PI, 0],
+            handedness: configuration.handedness,
+            shadow: true,
+            behaviorModules: behaviorModules,
+            ...oldCardData,
+        };
+        if (options.type === "initial") {options.type = "3d";}
+        if (configuration.type === "ReadyPlayerMe") {
+            options = {...options, ...{
+                avatarEventHandler: "HalfBodyAvatarEventHandler",
+                dataScale: [1.5, 1.5, 1.5],
+                dataTranslation: [0, -0.7, 0],
+                behaviorModules: [...options.behaviorModules, "HalfBodyAvatarEventHandler"]
+            }};
+            if (options.behaviorModules.indexOf(handlerModuleName) >= 0) {
+                options.behaviorModules = options.behaviorModules.filter((n) => n !== handlerModuleName);
+            }
+        } else {
+            options = {...options, ...{
+                dataScale:  [0.3, 0.3, 0.3],
+                dataTranslation:  [0, -0.4, 0]
+            }};
+        }
+        return options;
+    }
+
+    showSettingsMenu() {
+        if (document.body.querySelector("#joinDialog")) {return;}
+        let promise = new Promise((resolve, _reject) => {
+            startSettingsMenu(false, resolve);
+        });
+        promise.then(changed => {
+            if (changed) {
+                const configuration = window.settingsMenuConfiguration;
+                sendToShell("update-configuration", { localConfig: configuration });
+                let tempCardSpec = this.makeCardSpecFrom(window.settingsMenuConfiguration, this.actor);
+                delete this.modelLoadTime;
+                this.say("setAvatarData", tempCardSpec);
+                this.modelHasLoaded = false;
+            }
+        });
     }
 
     goHome() {
@@ -1590,6 +2188,7 @@ export class AvatarPawn extends mix(CardPawn).with(PM_Player, PM_SmoothedDriver,
         if (newCard) {
             this.lastCardId = newCard.id;
             let pawn = GetPawn(newCard.id);
+            if (!pawn) {return;}
             let pose = pawn.getJumpToPose ? pawn.getJumpToPose() : null;
 
             if (pose) {

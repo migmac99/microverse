@@ -6,12 +6,14 @@
 
 import {
     Data, Constants, // re-exported from @croquet/croquet
-    Actor, Pawn, ModelService, ViewService, mix, AM_Smoothed, PM_Smoothed,
-    v3_dot, v3_cross, v3_sub, v3_normalize, v3_magnitude, v3_sqrMag, q_euler, q_multiply,
+    Actor, Pawn, ModelService, ViewService, mix, AM_Smoothed, PM_Smoothed, GetPawn,
+    v3_dot, v3_cross, v3_sub, v3_add, v3_normalize, v3_magnitude, v3_sqrMag, v3_transform, v3_rotate,
+    q_euler, q_multiply,
+    m4_invert, m4_identity
 } from '@croquet/worldcore-kernel';
-import { THREE, THREE_MESH_BVH, PM_ThreeVisible } from '@croquet/worldcore-three';
+import { THREE, THREE_MESH_BVH, PM_ThreeVisible } from './ThreeRender.js';
 import { AM_PointerTarget, PM_PointerTarget } from './Pointer.js';
-import { addShadows, normalizeSVG, addTexture } from './assetManager.js'
+import { addMeshProperties, normalizeSVG, addTexture } from './assetManager.js'
 import { TextFieldActor } from './text/text.js';
 import { DynamicTexture } from './DynamicTexture.js'
 import { AM_Code, PM_Code } from './code.js';
@@ -29,15 +31,12 @@ export const intrinsicProperties = ["translation", "scale", "rotation", "layers"
 //------------------------------------------------------------------------------------------
 
 export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM_Code) {
-    // this should be in AM_SPATIAL but that would require changing Worldcore mixins
     static okayToIgnore() { return [ "$local", "$global", "$rigidBody" ]; }
 
     init(options) {
         let {cardOptions, cardData} = this.separateOptions(options);
 
-        if (!cardOptions.layers) {
-            cardOptions.layers = ["pointer"];
-        }
+        if (!cardOptions.layers) {cardOptions.layers = ["pointer"];}
 
         // coming from different mixins, but still used by listen.
         this.scriptListeners = new Map();
@@ -50,11 +49,12 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
         this.listen("showControls", this.showControls);
         this.listen("setCardData", this.setCardData);
 
-        this.listen("dataScaleComputed", this.dataScaleComputed);
-        this.listen("setAnimationIndex", this.setAnimationIndex);
+        // this.listen("dataScaleComputed", this.dataScaleComputed);
+        this.listen("setAnimationClipIndex", this.setAnimationClipIndex);
     }
 
     separateOptions(options) {
+        // options are either intrinsic or non-intrinsic. We store non-intrinsic values in _cardData.
         let cardOptions = {};
         let cardData = {};
 
@@ -69,6 +69,8 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
     }
 
     updateOptions(options) {
+        // fully override the _cardData with given variable (keys that are not in options will be deleted.
+        console.log("updateOptions", options);
         let {cardOptions, cardData} = this.separateOptions(options);
         this.updateBehaviors(options);
         this.set({...cardOptions});
@@ -99,6 +101,11 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
     }
 
     updateBehaviors(options) {
+        // we need to call teardown and setup for behaviors removed or added;
+        // so we need to keep track of changes from the previous state.
+        // also, since non-system modules can depend on system modules, we ensure that
+        // system modules appear first in the behavior order even if added later.
+
         if (!options.behaviorModules) {return;}
         let behaviorManager = this.behaviorManager;
 
@@ -131,15 +138,6 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
                 }
                 if (oldModule.pawnBehaviors) {
                     allOldPawnBehaviors.push(...oldModule.pawnBehaviors.values());
-                }
-                if (oldModule.systemModule) {
-                    oldSystemModules.push(oldModule.externalName);
-                    if (oldModule.actorBehaviors) {
-                        allNewActorBehaviors.push(...oldModule.actorBehaviors.values());
-                    }
-                    if (oldModule.pawnBehaviors) {
-                        allNewPawnBehaviors.push(...oldModule.pawnBehaviors.values());
-                    }
                 }
             });
         }
@@ -182,20 +180,26 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
     setCardData(options) {
         let newOptions = {...this._cardData, ...options};
         this.set({cardData: newOptions});
+        this.updateBehaviors(options);
+        // this line below should be good, except that right now it fails some objects.
+        // this.say("updateShape", options);
     }
 
     createShape(options) {
         let type = options.type;
         if (type === "text") {
             this.subscribe(this.id, "changed", "textChanged");
-        } else if (type === "3d") {
-        } else if (type === "2d" || type === "2D" ) {
-        } else if (type === "lighting") {
-        } else if (type === "object") {
         } else if (type === "code") {
             this.subscribe(this.id, "changed", "textChanged");
             // this is a weird inter mixins dependency but not sure how to write it
             this.subscribe(this.id, "text", "codeAccepted");
+        } else if (type === "3d" || type === "3D") {
+            if (this._cardData.animationClipIndex !== undefined && this._cardData.animationStartTime === undefined) {
+                this._cardData.animationStartTime = this.now();
+            }
+        } else if (type === "2d" || type === "2D" ) {
+        } else if (type === "lighting") {
+        } else if (type === "object" || type === "initial") {
         } else {
             console.log("unknown type for a card: ", options.type);
         }
@@ -211,13 +215,17 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
         return [this._cardData.textureWidth * uv[0], this._cardData.textureHeight * (1 - uv[1])];
     }
 
+    /*
     dataScaleComputed(s) {
+        // when a 3D model is loaded, it automatically computes dataScale on the view side.
+        // the value is transmitted to the model. (potentially multiple times).
         if (s === undefined) {
             delete this._cardData.dataScale;
         } else {
             this._cardData.dataScale = s;
         }
     }
+    */
 
     textChanged() {
         this._cardData.runs = this.content.runs;
@@ -236,6 +244,43 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
             return this.subscribe(this._parent.id, message, method);
         }
         this.subscribe(this.id, message, method);
+    }
+
+    rotateBy(angles) {
+        // angles are either a 3 value array or 4 value array
+        // if it is a 3-value array, it is interpreted as an euler angle
+        // if it is a 4-value array, it is interpreted as a quaternion
+        let q = angles.length === 3 ? q_euler(...angles) : angles;
+        let newQ = q_multiply(this.rotation, q);
+        this.rotateTo(newQ);
+    }
+
+    translateBy(dist) {
+        // dist is either a 3-value array or a scalar.
+        // if it is a 3-value array, it specify the offset.
+        // if it is a scalar, it is intepretered as [0, 0, dist].
+        let offset = Array.isArray(dist) ? dist : [0, 0, dist];
+        let t = this.translation;
+        this.translateTo([t[0] + offset[0], t[1] + offset[1], t[2] + offset[2]]);
+    }
+
+    forwardBy(dist) {
+        // dist is either a 3-value array or a scalar.
+        // if it is a 3-value array, it specify the offset, in the reference frame of the receiver.
+        // if it is a scalar, it is intepretered as [0, 0, dist].
+        let offset = Array.isArray(dist) ? dist : [0, 0, dist];
+        let vec = v3_rotate(offset, this.rotation)
+        let t = this.translation;
+        this.translateTo([t[0] + vec[0], t[1] + vec[1], t[2] + vec[2]]);
+    }
+
+    scaleBy(factor) {
+        // factor is either a 3-value array or a scalar.
+        // if it is a 3-value array, it specify the difference.
+        // if it is a scalar, it is intepretered as [factor, factor, factor].
+        let offset = Array.isArray(factor) ? factor : [factor, factor, factor];
+        let cur = this.scale;
+        this.scaleTo([cur[0] + offset[0], cur[1] + offset[1], cur[2] + offset[2]]);
     }
 
     nop() {}
@@ -266,6 +311,7 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
     }
 
     showControls(toWhom) {
+        // it creates a property sheet, when a module called "PropertySheet" is loaded.
         let avatar = this.service("ActorManager").actors.get(toWhom.avatar);
         let distance = (toWhom.distance || 6);
         distance = Math.min(distance * 0.7, 4);
@@ -292,23 +338,9 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
         }
     }
 
-    setBehaviors(selection) {
-        let behaviorModules = [];
-
-        selection.forEach((obj) => {
-            let {label, selected} = obj;
-            if (this.behaviorManager.modules.get(label)) {
-                if (selected) {
-                    behaviorModules.push(label);
-                }
-            }
-        });
-        this.updateBehaviors({behaviorModules});
-    }
-
-    setAnimationIndex(animationIndex) {
-        if (this._cardData.animationClipIndex !== undefined) {return;}
-        this._cardData.animationClipIndex = animationIndex;
+    setAnimationClipIndex(animationClipIndex) {
+        // called when a view loads a 3D model and detects that it has animation clips.
+        this._cardData.animationClipIndex = animationClipIndex;
         if (this._cardData.animationStartTime === undefined) this._cardData.animationStartTime = this.now();
         this.say("animationStateChanged");
     }
@@ -395,6 +427,12 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
                     }
                 }
 
+                // this should not happen but so far we have not found the cause.
+                if (typeof options.parent === "string") {
+                    console.log("encountered parent as string", options.parent);
+                    delete options.parent;
+                }
+
                 let actor = Cls.create(options);
                 if (id) {
                     map.set(id, actor);
@@ -403,6 +441,7 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
                 if (options.type === "code" && behavior) {
                     actor.subscribe(behavior.id, "setCode", "loadAndReset");
                 }
+
                 return actor;
             });
         }
@@ -412,6 +451,20 @@ export class CardActor extends mix(Actor).with(AM_Smoothed, AM_PointerTarget, AM
     get rigidBody() {
         // return this.$rigidBody;
         return this.call("Rapier$RapierActor", "getRigidBody");
+        // return this.call("Physics$PhysicsActor", "getRigidBody");
+    }
+
+    setPhysicsWorld(v) {
+        this._physicsWorld = v;
+        return v;
+    }
+
+    get physicsWorld() {
+        let manager = this.service("PhysicsManager");
+        if (manager.globalWorld) {return manager.globalWorld;}
+        if (this._physicsWorld) {return this._physicsWorld;}
+        if (this._parent) {return this._parent._physicsWorld;}
+        return undefined;
     }
 
     collisionEvent(rb1, rb2, started) {
@@ -439,6 +492,7 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
 
         this.listen("saveCard", this.saveCard);
         this.listen("animationStateChanged", this.tryStartAnimation);
+        this.animationInterval = null;
         this.subscribe(this.id, "3dModelLoaded", this.tryStartAnimation);
         this.constructCard();
     }
@@ -474,6 +528,19 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
         }
     }
 
+    destroy() {
+        let cardData = this.actor._cardData;
+        let assetManager = this.service("AssetManager").assetManager;
+        if (cardData.dataLocation) {
+            assetManager.revoke(cardData.dataLocation, this.id);
+        }
+        if (cardData.textureLocation) {
+            assetManager.revoke(cardData.textureLocation, this.id);
+        }
+        this.cleanupColliderObject();
+        super.destroy();
+    }
+
     ensureColliderObject() {
         if (!this.colliderObject) {
             let collider = new THREE.Group();
@@ -484,12 +551,16 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
 
     cleanupColliderObject() {
         if (this.colliderObject) {
-            this.colliderObject.children.forEach((m) => {
-                this.colliderObject.remove(m);
+            [...this.colliderObject.children].forEach((m) => {
+                if (m.geometry) {
+                    m.geometry.dispose();
+                    this.colliderObject.remove(m);
+                }
             });
             if (this.colliderObject.geometry) {
                 this.colliderObject.geometry.dispose();
             }
+            this.colliderObject.removeFromParent();
             delete this.colliderObject;
         }
     }
@@ -543,6 +614,11 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
         delete this.properties2D;
         delete this.animationSpec;
 
+        if (this.animationInterval) {
+            clearInterval(this.animationInterval);
+            this.animationInterval = null;
+        }
+
         this.cleanupColliderObject();
 
         if (this.shape) {
@@ -562,7 +638,7 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
                     }
                 }
             });
-            this.shape.children.forEach((m) => this.shape.remove(m));
+            [...this.shape.children].forEach((m) => this.shape.remove(m));
         }
     }
 
@@ -603,24 +679,48 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
         let name = this.actor.name;
         let shadow = options.shadow !== undefined ? options.shadow : true;
         let singleSided = options.singleSided !== undefined ? options.singleSided : false;
-        if (!model3d) {return;}
-        let assetManager = this.service("AssetManager").assetManager;
+        let noFog = options.noFog !== undefined ? options.noFog : false;
 
+        // bail out if we're in the process of loading this same model
+        if (!model3d || this._model3dLoading === model3d) {return;}
+
+        this._model3dLoading = model3d;
+        let assetManager = this.service("AssetManager").assetManager;
         this.getBuffer(model3d).then((buffer) => {
+            assetManager.setCache(model3d, buffer, this.id);
             return assetManager.load(buffer, modelType, THREE);
         }).then((obj) => {
-            addShadows(obj, shadow, singleSided, THREE);
+            if (model3d !== this._model3dLoading) {
+                console.log("model load has been superseded");
+                return;
+            }
+
             this.setupObj(obj, options);
             // if it is loading an old session, the animation field may not be there.
             this.setupAnimation(obj);
-            obj.updateMatrixWorld(true);
+            obj.updateMatrixWorld(true); // @@ not sure whose benefit this is for, given that obj isn't yet in the scene graph
 
             if (options.placeholder) {
                 console.log("delete collider for placeholder");
+                // assuming that a card with placeholder specified does not need to keep the cache.
+                // So we special case it to delete the cache entry.
+                assetManager.revoke(model3d, this.id);
                 this.cleanupColliderObject();
                 this.shape.remove(this.placeholder);
             }
-
+            if(options.flatten) {
+                let flattenedObj = this.flattenObj(obj);
+                if(flattenedObj !== obj) {
+                    obj.traverse((mesh) => {
+                        if (mesh.geometry){
+                            mesh.geometry.dispose();
+                            mesh.material.dispose();
+                        }
+                    });
+                    obj = flattenedObj;
+                }
+            }
+            addMeshProperties(obj, shadow, singleSided, noFog, THREE);
             if (this.actor.layers.indexOf('walk') >= 0) {
                 this.constructCollider(obj);
             }
@@ -629,12 +729,18 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
             // or collider incorporates shape transform
             this.shape.add(obj);
 
+            obj.updateMatrixWorld(true); // now sort out where everything is, before announcing model load
+
             if (name) {obj.name = name;}
 
             if (Array.isArray(obj.material)) {
                 obj.material.dispose = arrayDispose;
             }
+
+            delete this._model3dLoading;
             this.publish(this.id, "3dModelLoaded");
+        }).catch(_err => {
+            delete this._model3dLoading;
         });
     }
 
@@ -688,13 +794,18 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
                 texture: this.texture
             });
         } else if (textureType === "image") {
-            texturePromise = this.getBuffer(textureLocation).then((buffer) => {
-                let objectURL = URL.createObjectURL(new Blob([buffer]));
+            texturePromise = this.getBuffer(textureLocation).then((bufferOrObj) => {
+                if (bufferOrObj.texture) {
+                    this.texture = bufferOrObj.texture;
+                    return Promise.resolve(bufferOrObj);
+                }
+                let objectURL = URL.createObjectURL(new Blob([bufferOrObj]));
                 this.objectURL = objectURL;
                 return new Promise((resolve, reject) => {
                     this.texture = new THREE.TextureLoader().load(
                         objectURL,
                         (texture) => {
+                            URL.revokeObjectURL(objectURL);
                             resolve({width: texture.image.width, height: texture.image.height, texture})
                         }, null, reject);
                 });
@@ -727,6 +838,7 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
 
         if (dataLocation) {
             return this.getBuffer(dataLocation).then((buffer) => {
+                assetManager.setCache(dataLocation, buffer, this.id);
                 return assetManager.load(buffer, "svg", THREE, loadOptions);
             }).then((obj) => {
                 normalizeSVG(obj, depth, shadow, THREE);
@@ -754,7 +866,9 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
                     let scale = 1 / max;
                     width = textureWidth * scale;
                     height = textureHeight * scale;
-
+                    if (textureLocation) {
+                        assetManager.setCache(textureLocation, textureObj, this.id);
+                    }
                     this.properties2D = {...this.properties2D, width, height, textureWidth, textureHeight};
                 }
 
@@ -773,6 +887,55 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
                 this.shape.add(obj);
             });
         }
+    }
+
+    // flattenObj does its best to remove groups and merge meshes with the same
+    // textures. It is used if the "flatten:" flag is set in the card.
+    // It is a poor man's mesh merge, so should not be used if the same texture is used
+    // in different kinds of materials (which is likely rare).
+    // It is quite similar to constructCollider and these could be merged at some point.
+    flattenObj(obj) {
+        let staticGroup = new THREE.Group();
+        let meshData = [];
+        let beforeCount = 0, endCount = 0;
+        try {
+            obj.traverse(c =>{
+                beforeCount++;
+                if(c.geometry){
+                    let cloned = c.geometry.clone();
+                    cloned.applyMatrix4(c.matrixWorld);
+                    if (cloned.index) {
+                        // this test may be dubious as some models can legitimately contain
+                        // non-indexed buffered geometry.
+                        if(cloned.attributes.uv2){
+                            // three.js doesn't support these
+                            delete cloned.attributes.uv2;
+                            delete cloned.attributes.texcoord_2;
+                        }
+                        let id = c.material.map ? c.material.map.id : 0;
+                        if (!meshData[id]) meshData[id] = {material: c.material.clone(), geometries:[]};
+                        meshData[id].geometries.push(cloned);
+                    } else {
+                        console.warn("skipping a geometry in the model that is not indexed");
+                    }
+                }
+            });
+
+            let BufferGeometryUtils = THREE.BufferGeometryUtils;
+            meshData.forEach(m=>{
+                endCount++;
+                let mergedGeometry = BufferGeometryUtils.mergeBufferGeometries( m.geometries, false);
+                let mesh = new THREE.Mesh(mergedGeometry, m.material);
+                staticGroup.add(mesh);
+            })
+
+        } catch (err) {
+            console.error("failed to build the static for:", obj);
+            console.error(err);
+            return obj;
+        }
+        console.log("Static - before:", beforeCount, "end:", endCount, "object:", obj);
+        return staticGroup;
     }
 
     constructCollider(obj) {
@@ -831,13 +994,17 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
         if (options.dataScale) {
             obj.scale.set(...options.dataScale);
         } else {
+            /*
             let size = new THREE.Vector3(0, 0, 0);
             new THREE.Box3().setFromObject(obj).getSize(size);
             let max = Math.max(size.x, size.y, size.z);
             let s = 4 / max;
             obj.scale.set(s, s, s);
-            // this is sent by all views at this moment
-            this.say("dataScaleComputed", [s, s, s]);
+            // this part of code is executed by all views at this moment
+            if (!this.actor._cardData.dataScale) {
+                this.say("dataScaleComputed", [s, s, s]);
+            }
+            */
         }
         if (options.dataTranslation) {
             obj.position.set(...options.dataTranslation);
@@ -849,12 +1016,18 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
     }
 
     setupAnimation(obj) {
+        // There are a few ways to get here:
+        // -  the card is recently created, and animation loop has not been started.
+        // -  the card was here, and animation loop was on and showing different animations
+        //    and a new 3D model was just loaded.
+        // - a new model with an actor behavior that specifies animationClipIndex already.
+        // For the second case, animationRunning may be true.
         if (!obj._croquetAnimation) {return;}
 
         let spec = obj._croquetAnimation;
-        this.animationSpec = spec;
-        if (!this.actor.animationSpec && spec.animations.length > 0) {
-            this.say("setAnimationIndex", 0); // use the first animation clip as default
+        if (spec) {
+            this.animationSpec = spec;
+            this.tryStartAnimation();
         }
     }
 
@@ -941,6 +1114,9 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
     }
 
     getBuffer(name) {
+        let assetManager = this.service("AssetManager").assetManager;
+        let buffer = assetManager.getCache(name);
+        if (buffer) { return Promise.resolve(buffer); }
         if (!this.isDataId(name)) {
             return fetch(name)
                 .then((resp) => resp.arrayBuffer())
@@ -1073,14 +1249,16 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
 
             let offset = v3_dot(p3e.xyz, normal);
             this._plane = new THREE.Plane(new THREE.Vector3(...normal), -offset);
-            this.lastDrag = p3e.xyz;
+            this._parentInvert = this._parent ? m4_invert(this._parent.global) : m4_identity();
+            this.startDrag = v3_transform(p3e.xyz, this._parentInvert)
             this._startTranslation = this._translation;
         }
         let p = new THREE.Vector3();
         rayCaster.ray.intersectPlane(this._plane, p);
         let here = p.toArray();
-        let delta = v3_sub(this.lastDrag, here);
-        this.set({translation: v3_sub(this._startTranslation, delta)});
+        let localHere = v3_transform(here, this._parentInvert);
+        let delta = v3_sub(localHere, this.startDrag);
+        this.set({translation: v3_add(this._startTranslation, delta)});
     }
 
     rotatePlane(rayCaster, p3e){
@@ -1103,23 +1281,33 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
         delta[1] = 0;
         let angle = v3_magnitude(delta);
         let sign = v3_cross(p3e.lookNormal, delta)[1];
-        if(sign < 0)angle = -angle;
-        let qAngle = q_euler(0,angle,0);
+        if (sign < 0) angle = -angle;
+        let qAngle = q_euler(0, angle, 0);
         this.set({rotation: q_multiply(this.baseRotation, qAngle)});
     }
 
     tryStartAnimation() {
-        if (this.actor._cardData.animationClipIndex !== undefined && !this.animationRunning) {
-            this.animationRunning = true;
-            this.runAnimation();
+        if (this.actor._cardData.animationClipIndex === undefined && this.animationSpec?.animations.length > 0) {
+            this.say("setAnimationClipIndex", 0);
+            // use the first animation clip as default. Some views may call this at the same time,
+            // but that should be okay
         }
+        this.runAnimation();
     }
 
     runAnimation() {
-        if (!this.animationRunning) {return;}
         let spec = this.animationSpec;
-        if (!spec) return;
-        this.future(50).runAnimation();
+        if (!spec) {
+            if (this.animationInterval) {
+                clearInterval(this.animationInterval);
+                this.animationInterval = null;
+            }
+            return;
+        }
+
+        if (!this.animationInterval) {
+            this.animationInterval = setInterval(() => this.runAnimation(), 50)
+        }
 
         let animationClipIndex = this.actor._cardData.animationClipIndex;
         if (animationClipIndex === undefined) {return;}
@@ -1178,6 +1366,13 @@ export class CardPawn extends mix(Pawn).with(PM_Smoothed, PM_ThreeVisible, PM_Po
     }
 
     nop() {}
+
+    getMyAvatar() {
+        let playerManager = this.actor.service("PlayerManager");
+        let myAvatar = playerManager.players.get(this.viewId);
+        if (!myAvatar) {return undefined;}
+        return GetPawn(myAvatar.id);
+    }
 
     addWire(obj3d) {
         let parts = [];

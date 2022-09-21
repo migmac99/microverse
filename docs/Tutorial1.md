@@ -119,12 +119,17 @@ class GridFloorActor {
 class GridFloorPawn {
     setup() {
         console.log("AM I GETTING HERE?")
-        const THREE = Worldcore.THREE;
+        const THREE = Microverse.THREE;
         const gridImage = './assets/images/grid.png';
         const texture = new THREE.TextureLoader().load(gridImage);
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
         texture.repeat.set( 100, 100 );
+
+        if (this.floor) {
+            this.shape.remove(this.floor);
+            this.floor.dispose();
+        }
 
         this.floor = new THREE.Mesh(
             new THREE.BoxGeometry( 100, 0.1, 100, 1, 1, 1 ),
@@ -157,7 +162,7 @@ The second part is what we call the "pawn". As might be clear from its name, it 
 
 The last part of the behavior code is simply bundling the actor and pawn behaviors into an exportable module that can then be added to the card when we create that.
 
-* [Tutorial2.md](./Tutorial2.md)
+* [Tutorial2]{@tutorial Tutorial2}
 
 **Copyright (c) 2022 Croquet Corporation**
 

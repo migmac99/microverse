@@ -7,8 +7,9 @@ class LightPawn {
         let group = this.shape;
 
         this.removeLights();
+        this.lights = [];
 
-        //let ambient = new Worldcore.THREE.AmbientLight( 0xffffff, .0 );
+        //let ambient = new Microverse.THREE.AmbientLight( 0xffffff, .0 );
         // group.add(ambient);
         //this.lights.push(ambient);
 
@@ -30,7 +31,7 @@ class LightPawn {
         ];
         points.forEach((pair) => {
             let v = pair.v
-            let point = new Worldcore.THREE.PointLight(0xffffff, 0.5);
+            let point = new Microverse.THREE.PointLight(0xffffff, 0.5);
             point.position.set(...v);
             if (pair.s) {
                 point.castShadow = true;
@@ -39,7 +40,7 @@ class LightPawn {
             group.add(point);
         });
 
-        let directional = new Worldcore.THREE.DirectionalLight(0xffffff, 0.8);
+        let directional = new Microverse.THREE.DirectionalLight(0xffffff, 0.8);
         directional.position.set(2, 20, 30);
         // directional.castShadow = true;
         this.lights.push(directional);
@@ -48,12 +49,22 @@ class LightPawn {
 
     removeLights() {
         if (this.lights) {
-            this.lights.forEach((light) => {
+            [...this.lights].forEach((light) => {
                 light.dispose();
                 this.shape.remove(light);
             });
         }
-        this.lights = [];
+        delete this.lights;
+
+        if (this.csm) {
+	    for ( let i = 0; i < this.csm.lights.length; i ++ ) {
+                this.csm.parent.remove( this.csm.lights[ i ].target );
+	    }
+
+            this.csm.remove();
+            this.csm.dispose();
+            delete this.csm;
+        }
     }
 
     teardown() {
@@ -71,11 +82,11 @@ class LightPawn {
         let dataType = options.dataType;
         if (!options.dataLocation) {return;}
         return this.getBuffer(options.dataLocation).then((buffer) => {
-            return assetManager.load(buffer, dataType, Worldcore.THREE, options).then((texture) => {
+            return assetManager.load(buffer, dataType, Microverse.THREE, options).then((texture) => {
                 let TRM = this.service("ThreeRenderManager");
                 let renderer = TRM.renderer;
                 let scene = TRM.scene;
-                let pmremGenerator = new Worldcore.THREE.PMREMGenerator(renderer);
+                let pmremGenerator = new Microverse.THREE.PMREMGenerator(renderer);
                 pmremGenerator.compileEquirectangularShader();
 
                 let exrCubeRenderTarget = pmremGenerator.fromEquirectangular(texture);
@@ -102,4 +113,4 @@ export default {
     ]
 }
 
-/* globals Worldcore */
+/* globals Microverse */

@@ -8,7 +8,7 @@
     below to help assist you in changing these values. Also, the code is somewhat
     modified for two connections, so see previous commits for the one connection code.
     
-    (cd = Worldcore.RAPIER.ColliderDesc.ball(0.85))
+    (cd = Microverse.RAPIER.ColliderDesc.ball(0.85))
     (let translation = [0, 34.135389925172704 - i * 2, 0])
     (card.call("Rapier$RapierActor", "createImpulseJoint", "ball" ...))
     (let s = [0.1, 2.3])
@@ -27,6 +27,7 @@ class CraneActor {
             name: "craneBase",
             translation: [0, -4.6239610018586506, 0.35],
             scale: [0.9, 0.9, 0.9],
+            dataScale: [3.384158349075, 3.384158349075, 3.384158349075],
             parent: this,
             modelType: "glb",
             dataLocation: "35H7xJVLhQNFxNMt5HZigey3PXGNeREIgL3fy_PNJaOsXUFBRUYPGhpTXFlQRhtARhtWR1pEQFBBG1xaGkAadm19f1NxelhAfFNccGxaWntsQmVjTHpXXgVTBxpWWlgbUE1UWEVZUBtBR1BDWkcbWExYXFZHWkNQR0ZQGmABZQcHckV0cnJDXlRReGB3B3JMam0DeUwEGGENWgNhZAxaB1NgWUB0B2waUVRBVBpDQGJqeEV7ZmNQc2JZAWIHAndQVEZ8fURQY0NlBmp_UAd-DH9FZXRXUkRC",
@@ -43,8 +44,8 @@ class CraneActor {
         this.links = [...Array(d).keys()].map((i) => {
 
             let bodyDesc;
-            if (i === 0 || i === 4) { bodyDesc = Worldcore.RAPIER.RigidBodyDesc.newKinematicPositionBased(); } // Top Link, Stays in Place
-            else { bodyDesc = Worldcore.RAPIER.RigidBodyDesc.newDynamic(); }
+            if (i === 0 || i === 4) { bodyDesc = Microverse.RAPIER.RigidBodyDesc.newKinematicPositionBased(); } // Top Link, Stays in Place
+            else { bodyDesc = Microverse.RAPIER.RigidBodyDesc.newDynamic(); }
 
             let card;
             let translation1 = [0, 35.135389925172704 - i * 2, 1]; // Take into Account the * 2, Change for Differing Values
@@ -57,6 +58,7 @@ class CraneActor {
                     name: "craneHook",
                     translation: [0, 27.135389925172704, 0], // Take Second Connection into Account
                     dataTranslation: [0, -45, 0], // Offset
+                    dataScale: [4.422980389669552, 4.422980389669552, 4.422980389669552],
                     scale: [1.1, 1.1, 1.1],
                     parent: this,
                     type: "3d",
@@ -69,7 +71,7 @@ class CraneActor {
                     shadow: true,
                 });
                 card.call("Rapier$RapierActor", "createRigidBody", bodyDesc);
-                cd = Worldcore.RAPIER.ColliderDesc.ball(0.85); // Radius
+                cd = Microverse.RAPIER.ColliderDesc.ball(0.85); // Radius
             } 
 
             else if (i >= 4) { // Second Link
@@ -84,7 +86,7 @@ class CraneActor {
                     shadow: true,
                 });
                 card.call("Rapier$RapierActor", "createRigidBody", bodyDesc);
-                cd = Worldcore.RAPIER.ColliderDesc.cylinder(0.9, 0.4); // Double Height (Gets Halved), Radius
+                cd = Microverse.RAPIER.ColliderDesc.cylinder(0.9, 0.4); // Double Height (Gets Halved), Radius
             }
 
             else { // Standard Link
@@ -99,7 +101,7 @@ class CraneActor {
                     shadow: true,
                 });
                 card.call("Rapier$RapierActor", "createRigidBody", bodyDesc);
-                cd = Worldcore.RAPIER.ColliderDesc.cylinder(0.9, 0.4); // Double Height (Gets Halved), Radius
+                cd = Microverse.RAPIER.ColliderDesc.cylinder(0.9, 0.4); // Double Height (Gets Halved), Radius
             }
 
             cd.setRestitution(0.5);
@@ -155,7 +157,7 @@ class CraneActor {
     updatePositionBy(ratio) { // Where The Movement Occurs
         this.ratio += ratio;
         this.ratio = Math.min(1, Math.max(0, this.ratio));
-        this.set({translation: Worldcore.v3_lerp(this.pointA, this.pointB, this.ratio)});
+        this.set({translation: Microverse.v3_lerp(this.pointA, this.pointB, this.ratio)});
         this.publish("craneLink", "handlePhysics", ratio); // Physics
     }
 }
@@ -163,8 +165,7 @@ class CraneActor {
 class CranePawn {
     setup() {
         if (this.obj) {
-            this.shape.children.forEach((o) => this.shape.remove(o));
-            this.shape.children = [];
+            [...this.shape.children].forEach((o) => this.shape.remove(o));
             this.obj.dispose();
             this.obj = null;
         }
@@ -186,7 +187,7 @@ class CraneLinkActor {
         if (ratio === 0) { return; }
         let r = this.rigidBody;
         if (!r) { return; }
-        let movement = Worldcore.v3_scale([0, 0, ratio * 60], 30);
+        let movement = Microverse.v3_scale([0, 0, ratio * 60], 30);
         r.applyForce({x: movement[0], y: movement[1], z: movement[2]}, true);
     }
 
@@ -194,7 +195,7 @@ class CraneLinkActor {
         if (!p3d.normal) { return; }
         let r = this.rigidBody;
         if (!r) { return; }
-        let jolt = Worldcore.v3_scale(p3d.normal, 250);
+        let jolt = Microverse.v3_scale(p3d.normal, 250);
         r.applyForce({x: jolt[0], y: jolt[1], z: jolt[2]}, true);
     }
 
@@ -222,13 +223,12 @@ class CraneLinkPawn {
         this.addEventListener("pointerDoubleDown", "nop");
 
         if (this.actor._cardData.craneProto) { return; }
-        this.shape.children.forEach((c) => this.shape.remove(c));
-        this.shape.children = [];
+        [...this.shape.children].forEach((c) => this.shape.remove(c));
 
         let s = [0.1, 2.3]; // Radius, Height (Half Height Here)
-        let geometry = new Worldcore.THREE.CylinderGeometry(s[0], s[0], s[1], 20);
-        let material = new Worldcore.THREE.MeshStandardMaterial({color: this.actor._cardData.color || 0xffffff, metalness: 0.6});
-        this.obj = new Worldcore.THREE.Mesh(geometry, material);
+        let geometry = new Microverse.THREE.CylinderGeometry(s[0], s[0], s[1], 20);
+        let material = new Microverse.THREE.MeshStandardMaterial({color: this.actor._cardData.color || 0xffffff, metalness: 0.6});
+        this.obj = new Microverse.THREE.Mesh(geometry, material);
         this.obj.castShadow = this.actor._cardData.shadow;
         this.obj.receiveShadow = this.actor._cardData.shadow;
 
@@ -271,12 +271,11 @@ class CraneButtonActor { // Buttons Move Crane
 
 class CraneButtonPawn {
     setup() {
-        this.shape.children.forEach((c) => this.shape.remove(c));
-        this.shape.children = [];
+        [...this.shape.children].forEach((c) => this.shape.remove(c));
 
         if (this.shape.children.length === 0) {
 
-            let shape = new Worldcore.THREE.Shape();
+            let shape = new Microverse.THREE.Shape();
             shape.moveTo(0, 0);
             shape.lineTo(-0.08, 0); // Start of First Curve
             shape.quadraticCurveTo(-0.1, 0, -0.1, 0.025); // End of First Curve
@@ -304,19 +303,19 @@ class CraneButtonPawn {
                 steps: 5,
             }
 
-            let geometry = new Worldcore.THREE.ExtrudeGeometry(shape, extrudeSettings);
-            let material = new Worldcore.THREE.MeshStandardMaterial({color: this.actor._cardData.color || 0xD86508});
-            this.obj = new Worldcore.THREE.Mesh(geometry, material);
+            let geometry = new Microverse.THREE.ExtrudeGeometry(shape, extrudeSettings);
+            let material = new Microverse.THREE.MeshStandardMaterial({color: this.actor._cardData.color || 0xD86508});
+            this.obj = new Microverse.THREE.Mesh(geometry, material);
             this.obj.castShadow = this.actor._cardData.shadow;
             this.obj.receiveShadow = this.actor._cardData.shadow;
             this.shape.add(this.obj);
 
-            // let geometryB = new Worldcore.THREE.BoxGeometry(0.2, 0.25, 0.2);
-            // let geometryT = new Worldcore.THREE.BoxGeometry(0.2, 0.2, 0.2);
-            // let material = new Worldcore.THREE.MeshStandardMaterial({color: this.actor._cardData.color || 0xD86508});
+            // let geometryB = new Microverse.THREE.BoxGeometry(0.2, 0.25, 0.2);
+            // let geometryT = new Microverse.THREE.BoxGeometry(0.2, 0.2, 0.2);
+            // let material = new Microverse.THREE.MeshStandardMaterial({color: this.actor._cardData.color || 0xD86508});
 
-            // this.objB = new Worldcore.THREE.Mesh(geometryB, material);
-            // this.objT = new Worldcore.THREE.Mesh(geometryT, material);
+            // this.objB = new Microverse.THREE.Mesh(geometryB, material);
+            // this.objT = new Microverse.THREE.Mesh(geometryT, material);
 
             // if (this.actor._cardData.craneSpeed > 0) { this.objT.translateY(0.1); }
             // else { this.objT.translateY(-0.1); } 
@@ -381,4 +380,4 @@ export default {
     ]
 }
 
-/* globals Worldcore */
+/* globals Microverse */

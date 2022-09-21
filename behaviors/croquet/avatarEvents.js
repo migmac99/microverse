@@ -2,21 +2,21 @@ class AvatarPawn {
     setup() {
         if (!this.isMyPlayerPawn) {return;}
 
-        this.addFirstResponder("pointerTap", {ctrlKey: true}, this);
+        this.addFirstResponder("pointerTap", {ctrlKey: true, altKey: true}, this);
         this.addEventListener("pointerTap", this.pointerTap);
 
-        this.addFirstResponder("pointerDown", {ctrlKey: true}, this);
+        this.addFirstResponder("pointerDown", {ctrlKey: true, altKey: true}, this);
         this.addLastResponder("pointerDown", {}, this);
         this.addEventListener("pointerDown", this.pointerDown);
 
-        this.addFirstResponder("pointerMove", {ctrlKey: true}, this);
+        this.addFirstResponder("pointerMove", {ctrlKey: true, altKey: true}, this);
         this.addLastResponder("pointerMove", {}, this);
         this.addEventListener("pointerMove", this.pointerMove);
 
-        this.addLastResponder("pointerUp", {ctrlKey: true}, this);
+        this.addLastResponder("pointerUp", {ctrlKey: true, altKey: true}, this);
         this.addEventListener("pointerUp", this.pointerUp);
 
-        this.addLastResponder("pointerWheel", {ctrlKey: true}, this);
+        this.addLastResponder("pointerWheel", {ctrlKey: true, altKey: true}, this);
         this.addEventListener("pointerWheel", this.pointerWheel);
 
         this.removeEventListener("pointerDoubleDown", "onPointerDoubleDown");
@@ -30,51 +30,24 @@ class AvatarPawn {
         this.addEventListener("keyUp", this.keyUp);
     }
 
-    startMotion(dx, dy) {
-        this.spin = Worldcore.q_identity();
-        this.velocity = Worldcore.v3_zero();
-        this.say("startFalling");
-        if (dx || dy) this.updateMotion(dx, dy);
-    }
-
-    endMotion(_dx, _dy) {
-        this.activeMMotion = false;
-        this.spin = Worldcore.q_identity();
-        this.velocity = Worldcore.v3_zero();
-    }
-
-    updateMotion(dx, dy) {
-        const JOYSTICK_V = 0.000030;
-        const MAX_V = 0.015;
-        const MAX_SPIN = 0.0004;
-
-        let v = dy * JOYSTICK_V;
-        v = Math.min(Math.max(v, -MAX_V), MAX_V);
-
-        const yaw = dx * (this.isMobile ? -2.5 * MAX_SPIN : -MAX_SPIN);
-        this.spin = Worldcore.q_euler(0, yaw ,0);
-        this.velocity = [0, 0, v];
-        this.maybeLeavePresentation();
-    }
-
     teardown() {
         if (!this.isMyPlayerPawn) {return;}
         console.log("avatar event handler detached");
-        this.removeFirstResponder("pointerTap", {ctrlKey: true}, this);
+        this.removeFirstResponder("pointerTap", {ctrlKey: true, altKey: true}, this);
         this.removeEventListener("pointerTap", this.pointerTap);
 
-        this.removeFirstResponder("pointerDown", {ctrlKey: true}, this);
+        this.removeFirstResponder("pointerDown", {ctrlKey: true, altKey: true}, this);
         this.removeLastResponder("pointerDown", {}, this);
         this.removeEventListener("pointerDown", this.pointerDown);
 
-        this.removeFirstResponder("pointerMove", {ctrlKey: true}, this);
+        this.removeFirstResponder("pointerMove", {ctrlKey: true, altKey: true}, this);
         this.removeLastResponder("pointerMove", {}, this);
         this.removeEventListener("pointerMove", this.pointerMove);
 
-        this.removeLastResponder("pointerUp", {ctrlKey: true}, this);
+        this.removeLastResponder("pointerUp", {ctrlKey: true, altKey: true}, this);
         this.removeEventListener("pointerUp", this.pointerUp);
 
-        this.removeLastResponder("pointerWheel", {ctrlKey: true}, this);
+        this.removeLastResponder("pointerWheel", {ctrlKey: true, altKey: true}, this);
         this.removeEventListener("pointerWheel", this.pointerWheel);
 
         this.removeEventListener("pointerDoubleDown", "onPointerDoubleDown");
@@ -98,4 +71,4 @@ export default {
     ]
 }
 
-/* globals Worldcore */
+/* globals Microverse */

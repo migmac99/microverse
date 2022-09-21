@@ -3,10 +3,11 @@
 // info@croquet.io
 
 import * as WorldcoreExports from "@croquet/worldcore-kernel";
-const {ViewService, ModelService, GetPawn, Model} = WorldcoreExports;
+const {ViewService, ModelService, GetPawn, Model, Constants} = WorldcoreExports;
 
-import * as WorldcoreThreeExports from "@croquet/worldcore-three";
+import * as WorldcoreThreeExports from "./ThreeRender.js";
 import * as WorldcoreRapierExports from "./physics.js";
+import * as FrameExports from "./frame.js";
 
 //console.log(WorldcoreRapierExports);
 
@@ -17,6 +18,11 @@ function newProxy(object, handler, module, behavior) {
     }
     return new Proxy(object, {
         get(target, property) {
+            // Note to developers:
+            // You may be seeing this in the developer tool of the browser.
+            // Don't worry! You can press the "Step into" button several times to get to the
+            // "apply" line a few lines below. If you step into it, you will see the behavior
+            // method you are trying to get to.
             if (property === isProxy) {return true;}
             if (property === "_target") {return object;}
             if (property === "_behavior") {return behavior;}
@@ -32,9 +38,8 @@ function newProxy(object, handler, module, behavior) {
     });
 }
 
-// this is a bit problematic as the one that handles code (the code editor) and
-// the one that uses it both use this one.  But then, you can script a editor
-// so it is kind of okay
+/* AM_Code: A mixin to support Live programming */
+
 export const AM_Code = superclass => class extends superclass {
     init(options) {
         super.init(options);
@@ -92,9 +97,17 @@ export const AM_Code = superclass => class extends superclass {
     future(time) {
         if (!this[isProxy]) {return super.future(time);}
         let behaviorName = this._behavior.$behaviorName;
-        let moduleName = this._behavior.module.name;
+        let moduleName = this._behavior.module.externalName;
         return this.futureWithBehavior(time, moduleName, behaviorName);
     }
+
+    // In order to enable a future call in the regular syntax:
+    //    this.future(100).aBehaviorMethod()
+    // the future call creates a proxy that remembers the calling behavior by name
+    // and "aBehaviorMethod is looked up from the behavior.
+
+    // A special case is needed when the method name is "call", therefore it expects
+    // explicit specification of behavior.
 
     futureWithBehavior(time, moduleName, behaviorName) {
         let superFuture = (sel, args) => super.future(time, sel, ...args);
@@ -120,6 +133,8 @@ export const AM_Code = superclass => class extends superclass {
         });
     }
 
+    // call a behavior method. behaviorName is either ModuleName$BehaviorName or BehaviorName.
+    // If former, the current (calling) module's name is used.
     call(behaviorName, name, ...values) {
         let moduleName;
         let split = behaviorName.split("$");
@@ -147,6 +162,31 @@ export const AM_Code = superclass => class extends superclass {
         return this.scriptSubscribe(scope, eventName, listener);
     }
 
+    has(behaviorName, name) {
+        let moduleName;
+        let split = behaviorName.split("$");
+        if (split.length > 1) {
+            moduleName = split[0];
+            behaviorName = split[1];
+        }
+
+        if (!moduleName && this[isProxy]) {
+            moduleName = this._behavior.module.externalName;
+        }
+
+        if (!this._behaviorModules) {return false;}
+        if (!this._behaviorModules.includes(moduleName)) {return false;}
+        let behavior = this.behaviorManager.lookup(moduleName, behaviorName);
+        if (!behavior) {return false;}
+        return !!behavior.$behavior[name];
+    }
+
+    // setup() of a behavior, and typically a subscribe call in it, gets called multiple times
+    // in its life cycle because of live programming feature. This wrapper for subscribe records
+    // the current set of subscription.
+    //
+    // canonical value of listener is a string that represents the name of a method.
+    // So double registration is not a problem.
     scriptSubscribe(scope, eventName, listener) {
         // listener can be:
         // this.func
@@ -197,9 +237,11 @@ export const AM_Code = superclass => class extends superclass {
         }
 
         let listenerKey = `${scope}:${eventName}${fullMethodName}`;
-        let had = this.scriptListeners && this.scriptListeners.get(listenerKey, fullMethodName);
+        let had = this.scriptListeners && this.scriptListeners.get(listenerKey);
         if (had) {return;}
 
+        // this check is needed when subscribe is called from constructors of superclasses.
+        // That is, this.scriptListeners is only initialized after super constructor returns.
         if (this.scriptListeners) {
             this.scriptListeners.set(listenerKey, fullMethodName);
         }
@@ -285,6 +327,8 @@ export const AM_Code = superclass => class extends superclass {
     }
 }
 
+/* AM_Code: A mixin to support Live programming */
+
 export const PM_Code = superclass => class extends superclass {
     constructor(actor) {
         super(actor);
@@ -295,7 +339,7 @@ export const PM_Code = superclass => class extends superclass {
         this.subscribe(actor.id, "callTeardown", "callTeardown");
 
         if (actor._behaviorModules) {
-            actor._behaviorModules.forEach((moduleName) => { /* name: foo.Bar */
+            actor._behaviorModules.forEach((moduleName) => { /* name: Bar */
                 let module = behaviorManager.modules.get(moduleName);
                 let {pawnBehaviors} = module || {};
                 if (pawnBehaviors) {
@@ -303,6 +347,8 @@ export const PM_Code = superclass => class extends superclass {
                         if (behavior) {
                             behavior.ensureBehavior();
                         }
+                        // future(0) is used so that setup() is called after
+                        // all behaviors specified are installed.
                         if (behavior.$behavior.setup) {
                             this.future(0).callSetup(`${module.externalName}$${behavior.$behaviorName}`);
                         }
@@ -318,6 +364,8 @@ export const PM_Code = superclass => class extends superclass {
         return actor.call(`${moduleName}$${behaviorName}`, name, ...values);
     }
 
+    // call a behavior method. behaviorName is either ModuleName$BehaviorName or BehaviorName.
+    // If former, the current (calling) module's name is used.
     call(behaviorName, name, ...values) {
         let moduleName;
         let split = behaviorName.split("$");
@@ -339,6 +387,7 @@ export const PM_Code = superclass => class extends superclass {
     }
 
     destroy() {
+        // destroy in the super chain requires that the receiver is the original pawn, not a proxy.
         if (this[isProxy]) {
             return this._target.destroy();
         }
@@ -352,7 +401,7 @@ export const PM_Code = superclass => class extends superclass {
                 if (pawnBehaviors) {
                     for (let behavior of pawnBehaviors.values()) {
                         if (behavior.$behavior.teardown) {
-                            this.call(`${behavior.module.name}$${behavior.$behaviorName}`, "teardown");
+                            this.call(`${behavior.module.externalName}$${behavior.$behaviorName}`, "teardown");
                         }
                     };
                 }
@@ -377,12 +426,36 @@ export const PM_Code = superclass => class extends superclass {
         return this.scriptSubscribe(scope, subscription, listener);
     }
 
+    has(behaviorName, name) {
+        let moduleName;
+        let split = behaviorName.split("$");
+        if (split.length > 1) {
+            moduleName = split[0];
+            behaviorName = split[1];
+        }
+
+        if (!moduleName && this[isProxy]) {
+            moduleName = this.actor._behavior.module.externalName;
+        }
+
+        if (!this.actor._behaviorModules) {return false;}
+        if (!this.actor._behaviorModules.includes(moduleName)) {return false;}
+        let behavior = this.actor.behaviorManager.lookup(moduleName, behaviorName);
+        if (!behavior) {return false;}
+        return !!behavior.$behavior[name];
+    }
+
+    // setup() of a behavior, and typically a subscribe call in it, gets called multiple times
+    // in its life cycle because of live programming feature. This wrapper for subscribe records
+    // the current set of subscription.
+    //
+    // canonical form of listner is a function.
+    // We try to remove and replace the existing subscription if the "same" handler is registered.
     scriptSubscribe(scope, subscription, listener) {
-        // console.log("view", scope, subscription, listener);
         // listener can be:
-        // this.func
+        // this.func for a method in the calling behavior
         // name for a base object method
-        // name for an expander method
+        // name for a behavior method
         // string with "." for this module, a behavior and method name
         // // string with "$" and "." for external name of module, a behavior name, method name
 
@@ -401,6 +474,10 @@ export const PM_Code = superclass => class extends superclass {
 
         let behaviorName;
         let moduleName;
+
+        if (typeof listener === "function") {
+            listener = listener.name;
+        }
 
         let dollar = listener.indexOf("$");
 
@@ -457,27 +534,34 @@ export const PM_Code = superclass => class extends superclass {
     }
 
     update(time, delta) {
+        super.update(time, delta);
         if (this.updateRequests) {
             this.updateRequests.forEach((u) => {
                 // [behaviorName, methodName]
                 this.call(...u, time, delta);
             });
         }
-        super.update(time, delta);
     }
 
     addUpdateRequest(array) {
-        let has = (col, value) => {
-            if (col.find((o) => o[0] === value[0] && o[1] === value[1]) >= 0) {
-                return;
-            }
-        };
-
         if (!this.updateRequests) {this.updateRequests = [];}
-        if (has(this.updateRequests, array)) {return;}
+        let index = this.updateRequests.findIndex((o) => o[0] === array[0] && o[1] === array[1]);
+
+        if (index >= 0) {return;}
         this.updateRequests.push(array);
     }
+
+    removeUpdateRequest(array) {
+        if (!this.updateRequests) {return;}
+        let index = this.updateRequests.findIndex((o) => o[0] === array[0] && o[1] === array[1]);
+        if (index < 0) {return;}
+        this.updateRequests.splice(index, 1);
+    }
 }
+
+// The class that represents a behavior.
+// A behavior is like a class, and does not hold any state.
+// so there is one instance of ScriptBehavior for each defined behavior.
 
 class ScriptingBehavior extends Model {
     static okayToIgnore() { return [ "$behavior", "$behaviorName" ]; }
@@ -487,14 +571,10 @@ class ScriptingBehavior extends Model {
         this.module = options.module;
         this.name = options.name;
         this.type = options.type;
+        this.location = options.location;
     }
 
     setCode(string) {
-        // this still is about per behavior.
-        // The upper level of code would replace 'export' with 'return',
-        // and then it can get the returned object.
-
-
         if (!string) {
             console.log("code is empty for ", this);
             return;
@@ -511,11 +591,11 @@ class ScriptingBehavior extends Model {
             source = trimmed;
         }
 
-        let code = `return (${source})`;
+        let code = `return (${source}) //# sourceURL=${window.location.origin}/behaviors_evaled/${this.location + "/" || ""}${this.name}`;
         let cls;
         try {
-            const Worldcore = {...WorldcoreExports, ...WorldcoreThreeExports, ...WorldcoreRapierExports};
-            cls = new Function("Worldcore", code)(Worldcore);
+            const Microverse = {...WorldcoreExports, ...WorldcoreThreeExports, ...WorldcoreRapierExports, ...FrameExports};
+            cls = new Function("Worldcore", "Microverse", code)(Microverse, Microverse);
         } catch(error) {
             console.log("error occured while compiling:", source, error);
             try {
@@ -539,7 +619,7 @@ class ScriptingBehavior extends Model {
     ensureBehavior() {
         if (!this.$behavior) {
             let maybeCode = this.code;
-            this.setCode(maybeCode, true);
+            this.setCode(maybeCode);
         }
         return this.$behavior;
     }
@@ -567,6 +647,9 @@ class ScriptingBehavior extends Model {
 
 ScriptingBehavior.register("ScriptingBehavior");
 
+// The class that represents a behavior module.
+// init sets up those properties but actorBehaviors and pawnBehaviors will be added.
+
 class ScriptingModule extends Model {
     init(options) {
         super.init(options);
@@ -586,6 +669,14 @@ export class BehaviorModelManager extends ModelService {
     init(name) {
         super.init(name || "BehaviorModelManager");
 
+        this.cleanUp();
+
+        this.subscribe(this.id, "loadStart", "loadStart");
+        this.subscribe(this.id, "loadOne", "loadOne");
+        this.subscribe(this.id, "loadDone", "loadDone");
+    }
+
+    cleanUp() {
         this.moduleDefs = new Map(); // <externalName /* Bar1 */, {name /*Bar*/, actorBehaviors: Map<name, codestring>, pawnBehaviors: Map<name, codestring>, systemModule: boolean, location:string?}>
 
         this.modules = new Map(); // <externalName /* Bar1 */, {name /*Bar*/, actorBehaviors: Map<name, codestring>, pawnBehaviors: Map<name, codestring>, systemModule: boolean, location:string?}>
@@ -596,12 +687,7 @@ export class BehaviorModelManager extends ModelService {
         this.viewUses = new Map();  // {ScriptingBehavior [cardPawnId]}
 
         this.externalNames = new Map();
-
         this.loadCache = null;
-
-        this.subscribe(this.id, "loadStart", "loadStart");
-        this.subscribe(this.id, "loadOne", "loadOne");
-        this.subscribe(this.id, "loadDone", "loadDone");
     }
 
     createAvailableName(name, location) {
@@ -640,8 +726,17 @@ export class BehaviorModelManager extends ModelService {
         if (!externalName) {return null;}
         let module = this.modules.get(externalName);
         if (!module) {return null;}
-        return module.actorBehaviors.get(behaviorName)
-            || module.pawnBehaviors.get(behaviorName);
+        let b = module.actorBehaviors.get(behaviorName);
+        if (b) {
+            b.ensureBehavior();
+            return b;
+        }
+        b = module.pawnBehaviors.get(behaviorName);
+        if (b) {
+            b.ensureBehavior();
+            return b;
+        }
+        return null;
     }
 
     loadStart(key) {
@@ -694,8 +789,25 @@ export class BehaviorModelManager extends ModelService {
     loadLibraries(codeArray) {
         let changed = [];
         let nameMap = new Map();
+        let userDir;
+        if (Constants.UserBehaviorDirectory) {
+            userDir = Constants.UserBehaviorDirectory.slice("behaviors/".length);
+        }
+        let systemDir;
+        if (Constants.SystemBehaviorDirectory) {
+            systemDir = Constants.SystemBehaviorDirectory.slice("behaviors/".length);
+        }
+
         codeArray.forEach((moduleDef) => {
             let {action, name, systemModule, location} = moduleDef;
+            if (location && !location.startsWith("(detached)")) {
+                let index = location.lastIndexOf("/");
+                let pathPart = location.slice(0, index);
+                if (userDir && !pathPart.startsWith(userDir) && !pathPart.startsWith(systemDir)) {
+                    return;
+                }
+            }
+
             let internalName = name;
             if (!action || action === "add") {
                 let def = {...moduleDef};
@@ -734,10 +846,15 @@ export class BehaviorModelManager extends ModelService {
                             let externalName = this.externalNames.get(`${location}$${moduleDef.name}`);
                             let behavior = this.lookup(externalName, behaviorName);
                             if (!behavior) {
+                                let cookedLocation = location;
+                                if (location.startsWith("(detached):")) {
+                                    cookedLocation = location.slice("(detached):".length);
+                                }
                                 behavior = ScriptingBehavior.create({
                                     systemBehavior: systemModule,
                                     module: module,
                                     name: behaviorName,
+                                    location: cookedLocation,
                                     type: behaviorType.slice(0, behaviorType.length - 1)
                                 });
                                 behavior.setCode(codeString);
@@ -806,7 +923,7 @@ export class BehaviorModelManager extends ModelService {
                     function randomString() {
                         return Math.floor(Math.random() * 36 ** 10).toString(36);
                     }
-                    newM.location = `${randomString()}/${randomString()}`;
+                    newM.location = `(detached):${randomString()}/${randomString()}`;
                 }
                 return [key, newM];
             });
@@ -914,6 +1031,12 @@ export class BehaviorViewManager extends ViewService {
         });
     }
 
+    // This method receives content of changed behavior files.
+    // first it creates a script DOM element with type="module", and sets its innerHTML to be the
+    // dataURL of a file. In this way, the browser handles "export" in the behavior file,
+    // and gives the exported object. We assign the export object into a global variable.
+    // The contents of the global variable is then stored into CodeLibrary and the entire result is sent
+    // to the corresponding BehaviorModelManager to update the model data.
     load(string) {
         let array;
         try {
@@ -933,7 +1056,7 @@ export class BehaviorViewManager extends ViewService {
         let promises = [];
         let scripts = [];
 
-        if (!window._alLResolvers) {
+        if (!window._allResolvers) {
             window._allResolvers = new Map();
         }
 
@@ -986,6 +1109,11 @@ if (map) {map.get("${id}")({data, key: ${key}, name: "${obj.name}"});}
                     let dot = obj.name.lastIndexOf(".");
                     let location = obj.name.slice(0, dot);
                     let isSystem = obj.name.startsWith("croquet");
+
+                    if (!obj || checkModule(obj.data)) {
+                        throw new Error("a behavior file does not export an array of modules");
+                    }
+
                     library.add(obj.data.default, location, isSystem);
                 });
 
@@ -1096,3 +1224,31 @@ export class CodeLibrary {
         this.modules.delete(path);
     }
 }
+
+export function checkModule(module) {
+    if (!module || !module.default || !module.default.modules) {
+        throw new Error("a behavior file does not export an array of modules");
+    }
+
+    let list = module.default.modules;
+    if (!Array.isArray(list)) {
+        throw new Error("a behavior file does not export an array of modules");
+    }
+    list.forEach((m) => {
+        let valid = true;
+        if (!m.name) {valid = false;}
+        if (m.actorBehaviors && !Array.isArray(m.actorBehaviors)) {valid = false;}
+        if (m.pawnBehaviors && !Array.isArray(m.pawnBehaviors)) {valid = false;}
+        let keys = {...m};
+        delete keys.name;
+        delete keys.actorBehaviors;
+        delete keys.pawnBehaviors;
+        if (Object.keys(keys).length > 0) {
+            valid = false;
+        }
+        if (!valid) {
+            throw new Error("a behavior file exports a malformed behavior module");
+        }
+    });
+}
+

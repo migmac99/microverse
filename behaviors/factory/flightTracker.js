@@ -43,21 +43,28 @@ class FlightTrackerPawn {
         const earthshadow = `./assets/images/earthshadow.jpg`;
         const ball = './assets/images/ball.png';
 
-        const THREE = Worldcore.THREE;
+        const THREE = Microverse.THREE;
 
-        this.shape.children.forEach((c) => {
+        [...this.shape.children].forEach((c) => {
             c.material.dispose();
             this.shape.remove(c);
         });
-        this.shape.children = []; // ??
 
-        const earthBaseTexture = new THREE.TextureLoader().load(earthbase);
-        earthBaseTexture.wrapS = earthBaseTexture.wrapT = THREE.RepeatWrapping;
-        earthBaseTexture.repeat.set(1,1);
+        let assetManager = this.service("AssetManager").assetManager;
 
-        const earthShadowTexture = new THREE.TextureLoader().load(earthshadow);
-        earthShadowTexture.wrapS = earthShadowTexture.wrapT = THREE.RepeatWrapping;
-        earthShadowTexture.repeat.set(1,1);
+        let earthBaseTexture = assetManager.fillCacheIfAbsent(earthbase, () => {
+            let tex = new THREE.TextureLoader().load(earthbase);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(1,1);
+            return tex;
+        }, this.id);
+
+        let earthShadowTexture = assetManager.fillCacheIfAbsent(earthshadow, () => {
+            let tex = new THREE.TextureLoader().load(earthshadow);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(1,1);
+            return tex;
+        }, this.id);
 
         this.shadowSphere = new THREE.Mesh(
             new THREE.SphereGeometry(SHADOWRADIUS, 64, 64),
@@ -75,7 +82,11 @@ class FlightTrackerPawn {
         let geometry = new THREE.BufferGeometry();
         const vertices = [];
         vertices.push(0,0,0);
-        const sprite = new THREE.TextureLoader().load(ball);
+
+        let sprite = assetManager.fillCacheIfAbsent(ball, () => {
+            return new THREE.TextureLoader().load(ball);
+        }, this.id);
+
         geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) );
         let material = new THREE.PointsMaterial( { size: 0.025, sizeAttenuation: true, map: sprite, alphaTest: 0.5, transparent: true } );
         material.color.set( 0xffaa33 );
@@ -107,7 +118,7 @@ class FlightTrackerPawn {
     }
 
     displayFlight() {
-        const THREE = Worldcore.THREE;
+        const THREE = Microverse.THREE;
         const BASERADIUS = 4;      // size of the earth (land)
 
         const vertices = [];
@@ -182,4 +193,4 @@ export default {
     ]
 }
 
-/* globals Worldcore */
+/* globals Microverse */

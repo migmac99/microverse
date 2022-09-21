@@ -3,7 +3,7 @@
 // info@croquet.io
 
 import {ModelService, ViewService} from "@croquet/worldcore-kernel";
-import {THREE} from "@croquet/worldcore-three";
+import {THREE} from "../ThreeRender.js";
 import {getTextGeometry, HybridMSDFShader, MSDFFontPreprocessor, getTextLayout} from "@croquet/hybrid-msdf-text";
 import { CardActor, CardPawn } from "../card.js";
 import loadFont from "load-bmfont";
@@ -363,6 +363,8 @@ export class TextFieldActor extends CardActor {
 
     get pawn() {return TextFieldPawn;}
 
+    static defaultMeasurement(text) { return defaultModelMeasurer.measureText(text); }
+
     static types() {
         return {"Warota.Doc": Doc};
     }
@@ -524,10 +526,12 @@ export class TextFieldPawn extends CardPawn {
         this.listen("screenUpdate", "screenUpdate");
 
         this.setupFonts();
-        this.addEventListener("pointerDown", "onPointerDown");
-        this.addEventListener("pointerMove", "onPointerMove");
-        this.addEventListener("pointerUp", "onPointerUp");
-        this.addEventListener("keyDown", "keyDown");
+        if (!this.actor._cardData.readOnly) {
+            this.addEventListener("pointerDown", "onPointerDown");
+            this.addEventListener("pointerMove", "onPointerMove");
+            this.addEventListener("pointerUp", "onPointerUp");
+            this.addEventListener("keyDown", "keyDown");
+        }
 
         this.listen("cardDataSet", "cardDataUpdated");
     }
@@ -581,7 +585,7 @@ export class TextFieldPawn extends CardPawn {
         this.textMaterial = new THREE.RawShaderMaterial(HybridMSDFShader({
             map: texture,
             textureSize: texture.image.width,
-            side: THREE.DoubleSide,
+            side: THREE.BackSide,
             transparent: true,
         }, THREE));
 
@@ -610,6 +614,9 @@ export class TextFieldPawn extends CardPawn {
             this.textGeometry = new TextGeometry({defaultColor: new THREE.Color(color)});
 
             this.textMesh = this.changeMaterial(name, true);
+            // setting a non-zero renderOrder helps prevent clashing with other objects,
+            // which can lead to blurred text.  123 is arbitrary.
+            this.textMesh.renderOrder = 123;
             this.plane.add(this.textMesh);
         }
 
@@ -669,8 +676,10 @@ export class TextFieldPawn extends CardPawn {
     }
 
     setupMesh() {
-        let depth = this.actor._cardData.depth || 0.01;
-        let cornerRadius = this.actor._cardData.cornerRadius || 0.05;
+        let { depth, opacity } = this.actor._cardData;
+        if (depth === undefined) {depth = 0.01;}
+        let cornerRadius = this.actor._cardData.cornerRadius;
+        if (cornerRadius === undefined) {cornerRadius = 0.05;}
         let {backgroundColor, frameColor, fullBright} = this.actor._cardData;
 
         if (!backgroundColor) {
@@ -689,6 +698,12 @@ export class TextFieldPawn extends CardPawn {
         }
 
         let material = this.makePlaneMaterial(depth, backgroundColor, frameColor, fullBright);
+        if (opacity !== undefined && opacity !== 1) {
+            (Array.isArray(material) ? material : [material]).forEach(m => {
+                m.transparent = true;
+                m.opacity = opacity;
+            });
+        }
         this.material = material;
         this.plane = new THREE.Mesh(this.geometry, this.material);
         this.plane.castShadow = true;
@@ -910,31 +925,31 @@ export class TextFieldPawn extends CardPawn {
         // through, and the kinds that the editor handles are different.
         // We need to separated them, and for the latter, the text commands list has
         // to be tested here.
-        if (cEvt.keyCombo === "Meta-S" || cEvt.keyCombo === "Ctrl-S") {
+        if (["Meta-S", "Ctrl-S", "Alt-S"].includes(cEvt.keyCombo)) {
             this.accept();
             evt.preventDefault();
             return true;
         }
 
-        if (cEvt.keyCombo === "Meta-Z" || cEvt.keyCombo === "Ctrl-Z") {
+        if (["Meta-Z", "Ctrl-Z", "Alt-Z"].includes(cEvt.keyCombo)) {
             this.undo();
             evt.preventDefault();
             return true;
         }
 
-        if (cEvt.keyCombo === "Meta-C" || cEvt.keyCombo === "Ctrl-C") {
+        if (["Meta-C", "Ctrl-C", "Alt-C"].includes(cEvt.keyCombo)) {
             this.copy();
             evt.preventDefault();
             return true;
         }
 
-        if (cEvt.keyCombo === "Meta-X" || cEvt.keyCombo === "Ctrl-X") {
+        if (["Meta-X", "Ctrl-X", "Alt-X"].includes(cEvt.keyCombo)) {
             this.cut();
             evt.preventDefault();
             return true;
         }
 
-        if (cEvt.keyCombo === "Meta-V" || cEvt.keyCombo === "Ctrl-V") {
+        if (["Meta-V", "Ctrl-V", "Alt-V"].includes(cEvt.keyCombo)) {
             this.paste();
             evt.preventDefault();
             return true;
