@@ -14,7 +14,7 @@ class ButtonActor {
     console.log('🔘 ' + this.name + ' has been pressed! ')
     switch (this.name) {
       case 'Button_0':
-        this.spawner('Buttons')
+        this.spawner('Buttons', true)
         break
       case 'Button_1':
         this.spawner('Map')
@@ -51,14 +51,20 @@ class ButtonActor {
     }
   }
 
-  spawnerItem(item, despawn) {
-    if (this.item(item) != {}) {
-      console.log('🚩 Spawning [ ' + item + ' ]')
-      this.createCard(this.item(item))
-        // console.log('✅ [ ' + item + ' ]')
-        // console.log('')
+  spawnerItem(itemNm, despawn) {
+    if (despawn) {
+      console.log(this.queryCards())
     } else {
-      console.log('⚠️ Item [ ' + item + ' ] is not configured!')
+
+      if (this.item(itemNm) != {}) {
+        console.log('🚩 Spawning [ ' + itemNm + ' ]')
+          //allCards[itemNm] = this.createCard(this.item(itemNm))
+        this.createCard(this.item(itemNm))
+          // console.log('✅ [ ' + item + ' ]')
+          // console.log('')
+      } else {
+        console.log('⚠️ Item [ ' + itemNm + ' ] is not configured!')
+      }
     }
   }
 

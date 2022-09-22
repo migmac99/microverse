@@ -1,13 +1,8 @@
 export function init(Constants) {
-  Constants.AvatarNames = [
-    'newwhite', 'madhatter', 'marchhare', 'queenofhearts', 'cheshirecat', 'alice'
-  ];
+  Constants.AvatarNames = ['newwhite', 'madhatter', 'marchhare', 'queenofhearts', 'cheshirecat', 'alice']
 
   Constants.UserBehaviorDirectory = 'behaviors/ultisim'
-  Constants.UserBehaviorModules = [
-    '../default/lights.js', '../default/openPortal.js',
-    'walker.js', 'dynamicPlacer.js', 'button.js'
-  ]
+  Constants.UserBehaviorModules = ['lights.js', 'walker.js', 'dynamicPlacer.js', 'button.js']
 
   Constants.UseRapier = true
 
