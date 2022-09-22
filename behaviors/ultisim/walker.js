@@ -18,6 +18,10 @@ class Walker {
         { v: [3, 0, -5], r: Math.PI / 2 }, // Forward until End Cap
         { v: [3, 0, -5], r: (3 * Math.PI) / 2 }, // Turn Around (180)
 
+        // { v: [0, 0, 0], r: (3 * Math.PI) / 2 }, // TEST
+        // { v: [0, 0, 0], r: (3 * Math.PI) / 2 }, // TEST
+        // { v: [0, 0, 0], r: (3 * Math.PI) / 2 }, // TEST
+
         { v: [-0, 0, -5], r: (3 * Math.PI) / 2 }, // Forward
         { v: [-3, 0, -5], r: (3 * Math.PI) / 2 }, // Right
         { v: [-6, 0, -7], r: Math.PI }, // Left

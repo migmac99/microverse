@@ -15,10 +15,12 @@ export function init(Constants) {
       card: {
         name: 'SpawnPoint',
         type: 'object',
+        translation: [-11, 1.7, -9], // Right of Door
+        rotation: [0, (4 * Math.PI) / 3, 0], // Looking to room
         // translation: [-12, 1.7, -10], // Door
         // rotation: [0, -Math.PI / 2, 0], // Looking to room
-        translation: [-7, 1.7, -10], // In front of door
-        rotation: [0, Math.PI / 2, 0], // Looking to door
+        // translation: [-7, 1.7, -10], // In front of door
+        // rotation: [0, Math.PI / 2, 0], // Looking to door
         spawn: 'default'
       }
     },
@@ -52,13 +54,11 @@ export function init(Constants) {
     },
     {
       card: {
-        name: 'Button_0',
-        translation: [-12.1, 3.3, -10.17839395666378],
-        rotation: [0, Math.PI / 2, 0],
+        name: 'Buttons',
         behaviorModules: ['Button'],
         type: '2d',
-        width: 0.2,
-        height: 0.2,
+        width: 0,
+        height: 0,
       }
     },
   ]
