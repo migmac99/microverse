@@ -4,8 +4,8 @@ class ButtonActor {
       // this.createMap()
 
     if (this.name.includes('Buttons')) {
-      this.spawnItem('Button_0')
-      this.spawnItem('Stand_0')
+      this.spawnerItem('Button_0')
+      this.spawnerItem('Stand_0')
         // console.log('❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌')
     }
   }
@@ -14,14 +14,13 @@ class ButtonActor {
     console.log('🔘 ' + this.name + ' has been pressed! ')
     switch (this.name) {
       case 'Button_0':
-        this.makeButtons()
+        this.spawner('Buttons')
         break
       case 'Button_1':
-        this.createMap()
+        this.spawner('Map')
         break
       case 'Button_2':
-        this.spawnItem('NPC_1')
-        this.spawnItem('NPC_2')
+        this.spawner('NPCs')
         break
       default:
         console.log('❌ No Action was assigned to this button [' + this.name + ']')
@@ -29,29 +28,33 @@ class ButtonActor {
     }
   }
 
-  createMap() {
-    // this.spawnItem('Floor')
+  spawner(type, despawn = false) {
+    switch (type) {
+      case 'Buttons':
+        this.spawnerItem('Button_1', despawn)
+        this.spawnerItem('Stand_1', despawn)
 
-    // this.spawnItem('Button_1')
-
-    this.spawnItem('EndCap')
-    this.spawnItem('Shelf_1')
-    this.spawnItem('Shelf_2')
-    this.spawnItem('Shelf_3')
+        this.spawnerItem('Button_2', despawn)
+        this.spawnerItem('Stand_2', despawn)
+        break
+      case 'Map':
+        // this.spawnItem('Floor', despawn)
+        this.spawnerItem('EndCap', despawn)
+        this.spawnerItem('Shelf_1', despawn)
+        this.spawnerItem('Shelf_2', despawn)
+        this.spawnerItem('Shelf_3', despawn)
+        break
+      case 'NPCs':
+        this.spawnerItem('NPC_1', despawn)
+        this.spawnerItem('NPC_2', despawn)
+        break
+    }
   }
 
-  makeButtons() {
-    this.spawnItem('Button_1')
-    this.spawnItem('Stand_1')
-
-    this.spawnItem('Button_2')
-    this.spawnItem('Stand_2')
-  }
-
-  spawnItem(item) {
-    if (this.Item(item) != {}) {
+  spawnerItem(item, despawn) {
+    if (this.item(item) != {}) {
       console.log('🚩 Spawning [ ' + item + ' ]')
-      this.createCard(this.Item(item))
+      this.createCard(this.item(item))
         // console.log('✅ [ ' + item + ' ]')
         // console.log('')
     } else {
@@ -59,7 +62,7 @@ class ButtonActor {
     }
   }
 
-  Item(item) {
+  item(item) {
     if (item.includes('Button_')) {
       var buttonIndex = 0
 
